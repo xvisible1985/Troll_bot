@@ -446,7 +446,14 @@ bot.onText(/\/troll_say ([\s\S]+)/, (msg, match) => {
   if (!isAdminChat(msg)) return;
   const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет.');
-  bot.sendMessage(state.chat_id, trollify(match[1]));
+  const caption = trollify(match[1]);
+  const photoSizes = msg.reply_to_message?.photo;
+  if (photoSizes && photoSizes.length > 0) {
+    const fileId = photoSizes[photoSizes.length - 1].file_id;
+    bot.sendPhoto(state.chat_id, fileId, { caption });
+  } else {
+    bot.sendMessage(state.chat_id, caption);
+  }
 });
 
 // --- Help ---
