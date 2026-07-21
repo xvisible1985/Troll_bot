@@ -122,3 +122,97 @@ for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
 }
 
 console.log('Тролль-бот: схема готова.');
+
+// --- Settings ---
+function getSetting(key) {
+  const row = db.prepare('SELECT value FROM troll_settings WHERE key = ?').get(key);
+  return row ? row.value : DEFAULT_SETTINGS[key];
+}
+
+function getSettingNumber(key) {
+  return Number(getSetting(key));
+}
+
+function setSetting(key, value) {
+  db.prepare('INSERT OR REPLACE INTO troll_settings (key, value) VALUES (?, ?)').run(key, String(value));
+}
+
+// --- Misc helpers ---
+function pick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function isSilenced(state) {
+  return !!state.silenced_until && state.silenced_until * 1000 > Date.now();
+}
+
+function logAction(userId, username, action) {
+  db.prepare('INSERT INTO troll_actions (user_id, username, action) VALUES (?, ?, ?)').run(userId, username, action);
+}
+
+// --- Growth ---
+const STAGE_NAMES = { 1: 'малыш', 2: 'подросток', 3: 'молодой', 4: 'взрослый' };
+
+function getStage(feedCount) {
+  if (feedCount >= 90) return 4;
+  if (feedCount >= 50) return 3;
+  if (feedCount >= 20) return 2;
+  return 1;
+}
+
+function getWeight(feedCount) {
+  const capped = Math.min(feedCount, 90);
+  return Math.round(30 + (capped / 90) * 370);
+}
+
+function moodWord(mood) {
+  if (mood >= 70) return 'весёлый';
+  if (mood >= 40) return 'нормальный';
+  if (mood >= 15) return 'грустный';
+  return 'злой';
+}
+
+// --- Troll-speak transformer ---
+// \b is defined relative to \w ([A-Za-z0-9_], ASCII-only) in JS regex, so it
+// never matches at the edge of a Cyrillic word — a naive \bты\b would never
+// fire on real Russian text. Use lookaround against an explicit Cyrillic
+// class instead, which gives the same "whole word only" semantics correctly.
+const CYR = 'а-яёА-ЯЁ';
+function wordRegex(word) {
+  return new RegExp(`(?<![${CYR}])${word}(?![${CYR}])`, 'gi');
+}
+
+const PRONOUN_MAP = [
+  [wordRegex('мной'), 'моя'], [wordRegex('мною'), 'моя'], [wordRegex('меня'), 'моя'], [wordRegex('мне'), 'моя'], [wordRegex('я'), 'моя'],
+  [wordRegex('тобой'), 'твоя'], [wordRegex('тобою'), 'твоя'], [wordRegex('тебя'), 'твоя'], [wordRegex('тебе'), 'твоя'], [wordRegex('ты'), 'твоя'],
+  [wordRegex('нами'), 'наша'], [wordRegex('нас'), 'наша'], [wordRegex('нам'), 'наша'], [wordRegex('мы'), 'наша'],
+  [wordRegex('вами'), 'ваша'], [wordRegex('вас'), 'ваша'], [wordRegex('вам'), 'ваша'], [wordRegex('вы'), 'ваша'],
+];
+
+const VERB_ENDINGS = ['ишь', 'ешь', 'ует', 'ают', 'яют', 'ите', 'ете', 'ют', 'ят', 'ат', 'ем', 'им', 'ет', 'ит', 'ю', 'у'];
+
+function trollifyWord(word) {
+  const lower = word.toLowerCase();
+  for (const ending of VERB_ENDINGS) {
+    if (lower.length > ending.length + 2 && lower.endsWith(ending)) {
+      return word.slice(0, word.length - ending.length) + 'ть';
+    }
+  }
+  return word;
+}
+
+// Known-imperfect on purpose: pronoun substitution now correctly matches
+// Cyrillic word boundaries via lookaround (see wordRegex above), but the verb
+// heuristic will still occasionally mangle irregular verbs or unrelated words
+// that share a common personal-verb ending. Accepted trade-off per design doc.
+function trollify(text) {
+  let result = text;
+  for (const [pattern, replacement] of PRONOUN_MAP) {
+    result = result.replace(pattern, (match) => {
+      const isCapitalized = match[0] !== match[0].toLowerCase() && match[0] === match[0].toUpperCase();
+      return isCapitalized ? replacement[0].toUpperCase() + replacement.slice(1) : replacement;
+    });
+  }
+  result = result.split(/(\s+)/).map((token) => (/^[а-яё]+$/i.test(token) ? trollifyWord(token) : token)).join('');
+  return result;
+}
