@@ -328,8 +328,50 @@ function maybeRememberedUser() {
   return row ? row.username : null;
 }
 
+// --- Targeted mischief (recent chat participants) ---
+// Tracks the last few ordinary (non-bot, non-command) senders in the troll's
+// home chat, in memory only — not persisted, purely for picking a live
+// "victim" for targeted mischief. Separate from troll_actions (which only
+// logs /play, /kick, /feed) and from maybeRememberedUser above, which still
+// draws from that older history for the existing detached-mischief aside.
+const RECENT_MESSAGES_MAX = 10;
+let recentMessages = [];
+
+function pushRecentMessage(entry) {
+  recentMessages.push(entry);
+  if (recentMessages.length > RECENT_MESSAGES_MAX) recentMessages.shift();
+}
+
+function getMentionName(entry) {
+  return entry.username ? `@${entry.username}` : entry.firstName;
+}
+
+const TARGETED_MISCHIEF_PHRASES = [
+  (user) => `Моя дёрнуть ${user} за ухо! Хи-хи!`,
+  (user) => `Моя показать ${user} язык из-под мост!`,
+  (user) => `Моя пугать ${user} страшный рожа!`,
+  (user) => `Моя щекотать ${user} веточка!`,
+];
+
+const TARGETED_MISCHIEF_ACTIONS = [
+  (user) => `украсть носки у ${user}`,
+  (user) => `спрятать телефон ${user} под мост`,
+  (user) => `подложить лягушку в карман ${user}`,
+  (user) => `облить водой ${user} из-под моста`,
+  (user) => `связать шнурки ${user}`,
+];
+
 function triggerMischief(chatId) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (recentMessages.length > 0 && Math.random() < 0.5) {
+    const target = getMentionName(pick(recentMessages));
+    if (Math.random() < 0.5) {
+      bot.sendMessage(chatId, pick(TARGETED_MISCHIEF_PHRASES)(target)).catch(() => {});
+    } else {
+      bot.sendMessage(chatId, `/try ${pick(TARGETED_MISCHIEF_ACTIONS)(target)}`).catch(() => {});
+    }
+    return;
+  }
   const pool = pickMischiefPool(state.mood, getSettingNumber('naughtiness'));
   let phrase = pick(pool);
   if (Math.random() < 0.3) {
@@ -396,6 +438,7 @@ bot.on('message', (msg) => {
   if (msg.text && msg.text.startsWith('/')) return;
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || msg.chat.id !== state.chat_id) return;
+  pushRecentMessage({ userId: msg.from.id, username: msg.from.username, firstName: msg.from.first_name });
   const newCount = state.message_count + 1;
   db.prepare('UPDATE troll_state SET message_count = ? WHERE id = 1').run(newCount);
   if (getSetting('paused') === '1' || isSilenced(state) || isNightNow()) return;
