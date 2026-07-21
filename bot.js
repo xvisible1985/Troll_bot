@@ -294,3 +294,96 @@ bot.onText(/\/feed\b/, (msg) => {
     bot.sendMessage(msg.chat.id, `Тролль подрос! Теперь твоя видеть: ${STAGE_NAMES[newStage]}!`);
   }
 });
+
+// --- Autonomous mischief ---
+const MISCHIEF_MILD = [
+  'Моя пошутить над курица соседа. Куд-кудах!',
+  'Моя бегать голый вокруг мост. Ой, весело!',
+  'Моя рассказать смешной история рыба.',
+];
+
+const MISCHIEF_MEDIUM = [
+  'Моя стащить чужой еда с стол. Ням!',
+  'Моя спрятать твоя вещь под мост. Хи-хи.',
+  'Моя измазать грязь чужой дверь.',
+];
+
+const MISCHIEF_MEAN = [
+  'Моя украсть весь еда деревня! Твоя плохой, моя злой!',
+  'Моя обозвать твоя всех плохими словами!',
+  'Моя сломать что-то нарочно. Моя не жалеть!',
+];
+
+function pickMischiefPool(mood, naughtiness) {
+  const score = naughtiness - Math.floor(mood / 20);
+  if (score >= 7) return MISCHIEF_MEAN;
+  if (score >= 4) return MISCHIEF_MEDIUM;
+  return MISCHIEF_MILD;
+}
+
+function maybeRememberedUser() {
+  const row = db.prepare('SELECT username FROM troll_actions ORDER BY RANDOM() LIMIT 1').get();
+  return row ? row.username : null;
+}
+
+function triggerMischief(chatId) {
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  const pool = pickMischiefPool(state.mood, getSettingNumber('naughtiness'));
+  let phrase = pick(pool);
+  if (Math.random() < 0.3) {
+    const rememberedUser = maybeRememberedUser();
+    if (rememberedUser) phrase += ` (твоя как ${rememberedUser}, твоя тоже моя помнить!)`;
+  }
+  db.prepare('UPDATE troll_state SET last_mischief_at = ? WHERE id = 1').run(Math.floor(Date.now() / 1000));
+  bot.sendMessage(chatId, phrase).catch(() => {});
+}
+
+function isNightNow() {
+  const hour = new Date().getHours();
+  const start = getSettingNumber('sleep_start');
+  const end = getSettingNumber('sleep_end');
+  if (start === end) return false;
+  if (start < end) return hour >= start && hour < end;
+  return hour >= start || hour < end;
+}
+
+const BACKGROUND_TICK_MS = 5 * 60 * 1000;
+
+function backgroundTick() {
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (!state) return;
+
+  const night = isNightNow();
+  if (night && !state.is_asleep) {
+    db.prepare('UPDATE troll_state SET is_asleep = 1 WHERE id = 1').run();
+    bot.sendMessage(state.chat_id, 'Моя засыпать под мост... *хрррр*...').catch(() => {});
+    return;
+  }
+  if (!night && state.is_asleep) {
+    db.prepare('UPDATE troll_state SET is_asleep = 0 WHERE id = 1').run();
+  }
+  if (night) return;
+
+  const now = Math.floor(Date.now() / 1000);
+
+  if (!state.last_health_tick_at || now - state.last_health_tick_at >= 3600) {
+    const neglectHours = getSettingNumber('neglect_threshold_hours');
+    const decay = getSettingNumber('health_decay_per_hour');
+    const regen = getSettingNumber('health_regen_per_hour');
+    const hoursSinceFed = state.last_fed_at ? (now - state.last_fed_at) / 3600 : Infinity;
+    if (hoursSinceFed > neglectHours) {
+      db.prepare('UPDATE troll_state SET health = MAX(0, health - ?), last_health_tick_at = ? WHERE id = 1').run(decay, now);
+    } else {
+      db.prepare('UPDATE troll_state SET health = MIN(100, health + ?), last_health_tick_at = ? WHERE id = 1').run(regen, now);
+    }
+  }
+
+  if (getSetting('paused') !== '1' && !isSilenced(state)) {
+    const intervalSeconds = getSettingNumber('mischief_interval_hours') * 3600;
+    if (!state.last_mischief_at || now - state.last_mischief_at >= intervalSeconds) {
+      triggerMischief(state.chat_id);
+    }
+  }
+}
+
+setInterval(backgroundTick, BACKGROUND_TICK_MS);
