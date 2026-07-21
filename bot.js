@@ -241,3 +241,56 @@ bot.onText(/\/troll\b/, (msg) => {
   ];
   bot.sendMessage(msg.chat.id, lines.join('\n'));
 });
+
+// --- Public commands: play / kick / feed ---
+const PLAY_PHRASES = [
+  'Моя мурчать от радость! Твоя хороший друг.',
+  'Моя любить, когда твоя играть с моя!',
+  'Моя довольный, твоя добрый.',
+];
+
+const KICK_PHRASES = [
+  'Ай! Твоя злой! Моя обижаться на твоя!',
+  'За что твоя моя бить?! Твоя плохой совсем!',
+  'Моя злиться на твоя! Твоя уходить!',
+];
+
+const FEED_PHRASES = [
+  'Ням-ням! Моя кушать вкусно, спасибо твоя!',
+  'Моя расти большой от твоя еда!',
+  'Моя сытый теперь, твоя хороший.',
+];
+
+bot.onText(/\/play\b/, (msg) => {
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (!state || isSilenced(state)) return;
+  db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10) WHERE id = 1').run();
+  logAction(msg.from.id, msg.from.username || msg.from.first_name, 'play');
+  bot.sendMessage(msg.chat.id, pick(PLAY_PHRASES));
+});
+
+bot.onText(/\/kick\b/, (msg) => {
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (!state || isSilenced(state)) return;
+  const silencedUntil = Math.floor(Date.now() / 1000) + 60 * 60;
+  db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), silenced_until = ? WHERE id = 1').run(silencedUntil);
+  logAction(msg.from.id, msg.from.username || msg.from.first_name, 'kick');
+  bot.sendMessage(msg.chat.id, pick(KICK_PHRASES));
+});
+
+bot.onText(/\/feed\b/, (msg) => {
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (!state || isSilenced(state)) return;
+  const newFeedCount = state.feed_count + 1;
+  const oldStage = getStage(state.feed_count);
+  const newStage = getStage(newFeedCount);
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare(
+    'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), last_fed_at = ? WHERE id = 1'
+  ).run(newFeedCount, now);
+  logAction(msg.from.id, msg.from.username || msg.from.first_name, 'feed');
+  bot.sendMessage(msg.chat.id, pick(FEED_PHRASES));
+  if (newStage > oldStage) {
+    bot.sendMessage(msg.chat.id, `Тролль подрос! Теперь твоя видеть: ${STAGE_NAMES[newStage]}!`);
+  }
+});
