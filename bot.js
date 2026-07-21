@@ -402,3 +402,81 @@ bot.on('message', (msg) => {
     triggerMischief(msg.chat.id);
   }
 });
+
+// --- Admin commands (admin chat only) ---
+bot.onText(/\/troll_set (\S+) (.+)/, (msg, match) => {
+  if (!isAdminChat(msg)) return;
+  const key = match[1];
+  const value = match[2];
+  if (!(key in DEFAULT_SETTINGS)) {
+    return bot.sendMessage(msg.chat.id, `Неизвестная настройка: ${key}`);
+  }
+  setSetting(key, value);
+  bot.sendMessage(msg.chat.id, `${key} = ${value}`);
+});
+
+bot.onText(/\/troll_settings\b/, (msg) => {
+  if (!isAdminChat(msg)) return;
+  const lines = Object.keys(DEFAULT_SETTINGS).map((key) => `${key} = ${getSetting(key)}`);
+  bot.sendMessage(msg.chat.id, lines.join('\n'));
+});
+
+bot.onText(/\/troll_pause\b/, (msg) => {
+  if (!isAdminChat(msg)) return;
+  setSetting('paused', '1');
+  bot.sendMessage(msg.chat.id, 'Шалости на паузе.');
+});
+
+bot.onText(/\/troll_resume\b/, (msg) => {
+  if (!isAdminChat(msg)) return;
+  setSetting('paused', '0');
+  bot.sendMessage(msg.chat.id, 'Шалости снова включены.');
+});
+
+bot.onText(/\/troll_reset\b/, (msg) => {
+  if (!isAdminChat(msg)) return;
+  db.exec('DELETE FROM troll_state');
+  db.exec('DELETE FROM troll_actions');
+  bot.sendMessage(msg.chat.id, 'Тролль сброшен. Используй /troll_here в публичном чате, чтобы призвать нового.');
+});
+
+bot.onText(/\/troll_say ([\s\S]+)/, (msg, match) => {
+  if (!isAdminChat(msg)) return;
+  const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
+  if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет.');
+  bot.sendMessage(state.chat_id, trollify(match[1]));
+});
+
+// --- Polling ---
+let offset = undefined;
+
+async function skipOldUpdates() {
+  try {
+    const updates = await Promise.race([
+      bot.getUpdates({ offset: -1, limit: 1, timeout: 0 }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+    ]);
+    if (updates.length > 0) offset = updates[updates.length - 1].update_id + 1;
+  } catch {}
+}
+
+async function poll() {
+  try {
+    const params = { timeout: 0, limit: 10 };
+    if (offset !== undefined) params.offset = offset;
+    const updates = await Promise.race([
+      bot.getUpdates(params),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('poll timeout')), 5000))
+    ]);
+    for (const update of updates) {
+      offset = update.update_id + 1;
+      bot.processUpdate(update);
+    }
+  } catch (err) {
+    if (err.message !== 'poll timeout') console.error('poll error:', err.message);
+  }
+  setTimeout(poll, 1000);
+}
+skipOldUpdates().then(() => poll());
+
+console.log('Тролль-бот запущен...');
