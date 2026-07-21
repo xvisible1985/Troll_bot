@@ -449,6 +449,31 @@ bot.onText(/\/troll_say ([\s\S]+)/, (msg, match) => {
   bot.sendMessage(state.chat_id, trollify(match[1]));
 });
 
+// --- Help ---
+const TROLL_HELP_PUBLIC = [
+  '🧌 Тролль под мостом:',
+  '/troll — статус тролля (здоровье, вес, настроение, стадия)',
+  '/play — поиграть с тролем (+настроение)',
+  '/feed — покормить тролля (+здоровье, +настроение, растёт)',
+  '/kick — пнуть тролля (-настроение, замолкает на час)',
+].join('\n');
+
+const TROLL_HELP_ADMIN = [
+  '',
+  '⚙️ Админские команды (только в этом чате):',
+  '/troll_here — призвать тролля (одноразово)',
+  '/troll_settings — текущие настройки',
+  '/troll_set <ключ> <значение> — изменить настройку',
+  '/troll_pause / /troll_resume — выключить/включить шалости',
+  '/troll_reset — полный сброс тролля',
+  '/troll_say <текст> — сказать текст от лица тролля тролльским акцентом',
+].join('\n');
+
+bot.onText(/\/troll_help\b/, (msg) => {
+  const text = isAdminChat(msg) ? TROLL_HELP_PUBLIC + TROLL_HELP_ADMIN : TROLL_HELP_PUBLIC;
+  bot.sendMessage(msg.chat.id, text);
+});
+
 // --- Polling ---
 let offset = undefined;
 
