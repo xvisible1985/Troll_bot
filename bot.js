@@ -216,3 +216,28 @@ function trollify(text) {
   result = result.split(/(\s+)/).map((token) => (/^[а-яё]+$/i.test(token) ? trollifyWord(token) : token)).join('');
   return result;
 }
+
+// --- Public commands: summon and status ---
+bot.onText(/\/troll_here\b/, async (msg) => {
+  if (!await isTelegramAdmin(msg)) return;
+  const existing = db.prepare('SELECT 1 FROM troll_state WHERE id = 1').get();
+  if (existing) {
+    return bot.sendMessage(msg.chat.id, 'Тролль уже тут. Если хочешь начать заново — /troll_reset в админ-чате.');
+  }
+  db.prepare(
+    'INSERT INTO troll_state (id, chat_id, feed_count, mood, health, message_count) VALUES (1, ?, 0, 50, 100, 0)'
+  ).run(msg.chat.id);
+  bot.sendMessage(msg.chat.id, 'В деревне появился детёныш тролля и поселился под мостом!');
+});
+
+bot.onText(/\/troll\b/, (msg) => {
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет. Позови его через /troll_here.');
+  const lines = [
+    `Здоровье: ${state.health}/100`,
+    `Вес: ${getWeight(state.feed_count)} кг`,
+    `Настроение: ${moodWord(state.mood)}`,
+    `Стадия: ${STAGE_NAMES[getStage(state.feed_count)]}`,
+  ];
+  bot.sendMessage(msg.chat.id, lines.join('\n'));
+});
