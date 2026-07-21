@@ -233,9 +233,11 @@ bot.onText(/\/troll_here\b/, async (msg) => {
 bot.onText(/\/troll\b/, (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет. Позови его через /troll_here.');
+  if (msg.chat.id !== state.chat_id) return;
+  const displayWeight = Math.round(getWeight(state.feed_count) + (Math.random() * 6 - 3));
   const lines = [
     `Здоровье: ${state.health}/100`,
-    `Вес: ${getWeight(state.feed_count)} кг`,
+    `Вес: ${displayWeight} кг`,
     `Настроение: ${moodWord(state.mood)}`,
     `Стадия: ${STAGE_NAMES[getStage(state.feed_count)]}`,
   ];
@@ -263,7 +265,7 @@ const FEED_PHRASES = [
 
 bot.onText(/\/play\b/, (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || isSilenced(state)) return;
+  if (!state || msg.chat.id !== state.chat_id || isSilenced(state)) return;
   db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10) WHERE id = 1').run();
   logAction(msg.from.id, msg.from.username || msg.from.first_name, 'play');
   bot.sendMessage(msg.chat.id, pick(PLAY_PHRASES));
@@ -271,7 +273,7 @@ bot.onText(/\/play\b/, (msg) => {
 
 bot.onText(/\/kick\b/, (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || isSilenced(state)) return;
+  if (!state || msg.chat.id !== state.chat_id || isSilenced(state)) return;
   const silencedUntil = Math.floor(Date.now() / 1000) + 60 * 60;
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), silenced_until = ? WHERE id = 1').run(silencedUntil);
   logAction(msg.from.id, msg.from.username || msg.from.first_name, 'kick');
@@ -280,7 +282,7 @@ bot.onText(/\/kick\b/, (msg) => {
 
 bot.onText(/\/feed\b/, (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || isSilenced(state)) return;
+  if (!state || msg.chat.id !== state.chat_id || isSilenced(state)) return;
   const newFeedCount = state.feed_count + 1;
   const oldStage = getStage(state.feed_count);
   const newStage = getStage(newFeedCount);
@@ -334,7 +336,6 @@ function triggerMischief(chatId) {
     const rememberedUser = maybeRememberedUser();
     if (rememberedUser) phrase += ` (твоя как ${rememberedUser}, твоя тоже моя помнить!)`;
   }
-  db.prepare('UPDATE troll_state SET last_mischief_at = ? WHERE id = 1').run(Math.floor(Date.now() / 1000));
   bot.sendMessage(chatId, phrase).catch(() => {});
 }
 
@@ -382,6 +383,7 @@ function backgroundTick() {
     const intervalSeconds = getSettingNumber('mischief_interval_hours') * 3600;
     if (!state.last_mischief_at || now - state.last_mischief_at >= intervalSeconds) {
       triggerMischief(state.chat_id);
+      db.prepare('UPDATE troll_state SET last_mischief_at = ? WHERE id = 1').run(now);
     }
   }
 }
@@ -393,13 +395,13 @@ bot.on('message', (msg) => {
   if (msg.from?.is_bot) return;
   if (msg.text && msg.text.startsWith('/')) return;
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state) return;
+  if (!state || msg.chat.id !== state.chat_id) return;
   const newCount = state.message_count + 1;
   db.prepare('UPDATE troll_state SET message_count = ? WHERE id = 1').run(newCount);
   if (getSetting('paused') === '1' || isSilenced(state) || isNightNow()) return;
   const trigger = getSettingNumber('mischief_message_trigger');
   if (newCount % trigger === 0) {
-    triggerMischief(msg.chat.id);
+    triggerMischief(state.chat_id);
   }
 });
 
