@@ -213,7 +213,7 @@ function trollify(text) {
       return isCapitalized ? replacement[0].toUpperCase() + replacement.slice(1) : replacement;
     });
   }
-  result = result.split(/(\s+)/).map((token) => (/^[а-яё]+$/i.test(token) ? trollifyWord(token) : token)).join('');
+  result = result.replace(/[а-яёА-ЯЁ]+/g, (word) => trollifyWord(word));
   return result;
 }
 
