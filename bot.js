@@ -387,3 +387,18 @@ function backgroundTick() {
 }
 
 setInterval(backgroundTick, BACKGROUND_TICK_MS);
+
+// --- Message-triggered mischief ---
+bot.on('message', (msg) => {
+  if (msg.from?.is_bot) return;
+  if (msg.text && msg.text.startsWith('/')) return;
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (!state) return;
+  const newCount = state.message_count + 1;
+  db.prepare('UPDATE troll_state SET message_count = ? WHERE id = 1').run(newCount);
+  if (getSetting('paused') === '1' || isSilenced(state) || isNightNow()) return;
+  const trigger = getSettingNumber('mischief_message_trigger');
+  if (newCount % trigger === 0) {
+    triggerMischief(msg.chat.id);
+  }
+});
