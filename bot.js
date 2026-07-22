@@ -316,12 +316,21 @@ const MISCHIEF_MEAN = [
   'Моя сломать что-то нарочно. Моя не жалеть!',
 ];
 
-function pickMischiefPool(mood, naughtiness) {
+// Stage caps how serious mischief can get, regardless of mood/naughtiness:
+// малыш (1) never goes past mild, подросток (2) never past medium, молодой/
+// взрослый (3-4) can reach the full mean tier. Tiers: 0=mild, 1=medium, 2=mean.
+const STAGE_MAX_MISCHIEF_TIER = { 1: 0, 2: 1, 3: 2, 4: 2 };
+
+function getMischiefTier(mood, naughtiness, stage) {
   const score = naughtiness - Math.floor(mood / 20);
-  if (score >= 7) return MISCHIEF_MEAN;
-  if (score >= 4) return MISCHIEF_MEDIUM;
-  return MISCHIEF_MILD;
+  let tier = 0;
+  if (score >= 7) tier = 2;
+  else if (score >= 4) tier = 1;
+  const maxTier = STAGE_MAX_MISCHIEF_TIER[stage] ?? 2;
+  return Math.min(tier, maxTier);
 }
+
+const MISCHIEF_POOLS = [MISCHIEF_MILD, MISCHIEF_MEDIUM, MISCHIEF_MEAN];
 
 function maybeRememberedUser() {
   const row = db.prepare('SELECT username FROM troll_actions ORDER BY RANDOM() LIMIT 1').get();
@@ -346,34 +355,58 @@ function getMentionName(entry) {
   return entry.username ? `@${entry.username}` : entry.firstName;
 }
 
+// Tiered [mild, medium, mean] — indexed the same way as MISCHIEF_POOLS/getMischiefTier.
 const TARGETED_MISCHIEF_PHRASES = [
-  (user) => `Моя дёрнуть ${user} за ухо! Хи-хи!`,
-  (user) => `Моя показать ${user} язык из-под мост!`,
-  (user) => `Моя пугать ${user} страшный рожа!`,
-  (user) => `Моя щекотать ${user} веточка!`,
+  [
+    (user) => `Моя корчить смешной рожица ${user}!`,
+    (user) => `Моя махать ручка ${user} из-под мост!`,
+    (user) => `Моя пускать пузыри на ${user}!`,
+  ],
+  [
+    (user) => `Моя дёрнуть ${user} за ухо! Хи-хи!`,
+    (user) => `Моя щекотать ${user} веточка!`,
+    (user) => `Моя обрызгать ${user} вода из лужа!`,
+  ],
+  [
+    (user) => `Моя пугать ${user} страшный рожа!`,
+    (user) => `Моя гнаться за ${user} с палка!`,
+    (user) => `Моя обзывать ${user} нехороший слова!`,
+  ],
 ];
 
 const TARGETED_MISCHIEF_ACTIONS = [
-  (user) => `украсть носки у ${user}`,
-  (user) => `спрятать телефон ${user} под мост`,
-  (user) => `подложить лягушку в карман ${user}`,
-  (user) => `облить водой ${user} из-под моста`,
-  (user) => `связать шнурки ${user}`,
+  [
+    (user) => `показать язык ${user}`,
+    (user) => `подмигнуть ${user}`,
+    (user) => `спрятаться от ${user} под мост`,
+  ],
+  [
+    (user) => `спрятать телефон ${user} под мост`,
+    (user) => `связать шнурки ${user}`,
+    (user) => `подложить лягушку в карман ${user}`,
+  ],
+  [
+    (user) => `украсть носки у ${user}`,
+    (user) => `облить водой ${user} из-под моста`,
+    (user) => `столкнуть ${user} в лужа`,
+  ],
 ];
 
 function triggerMischief(chatId) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  const stage = getStage(state.feed_count);
+  const tier = getMischiefTier(state.mood, getSettingNumber('naughtiness'), stage);
+
   if (recentMessages.length > 0 && Math.random() < 0.5) {
     const target = getMentionName(pick(recentMessages));
     if (Math.random() < 0.5) {
-      bot.sendMessage(chatId, pick(TARGETED_MISCHIEF_PHRASES)(target)).catch(() => {});
+      bot.sendMessage(chatId, pick(TARGETED_MISCHIEF_PHRASES[tier])(target)).catch(() => {});
     } else {
-      bot.sendMessage(chatId, `/try ${pick(TARGETED_MISCHIEF_ACTIONS)(target)}`).catch(() => {});
+      bot.sendMessage(chatId, `/try ${pick(TARGETED_MISCHIEF_ACTIONS[tier])(target)}`).catch(() => {});
     }
     return;
   }
-  const pool = pickMischiefPool(state.mood, getSettingNumber('naughtiness'));
-  let phrase = pick(pool);
+  let phrase = pick(MISCHIEF_POOLS[tier]);
   if (Math.random() < 0.3) {
     const rememberedUser = maybeRememberedUser();
     if (rememberedUser) phrase += ` (твоя как ${rememberedUser}, твоя тоже моя помнить!)`;
