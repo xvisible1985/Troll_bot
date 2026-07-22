@@ -112,6 +112,16 @@ db.exec(`
     text TEXT NOT NULL
   )
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS troll_relationships (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    first_name TEXT,
+    attitude INTEGER NOT NULL DEFAULT 0,
+    first_seen_at INTEGER DEFAULT (strftime('%s','now')),
+    last_seen_at INTEGER
+  )
+`);
 
 const DEFAULT_SETTINGS = {
   sleep_start: '0',
@@ -123,6 +133,10 @@ const DEFAULT_SETTINGS = {
   health_regen_per_hour: '1',
   neglect_threshold_hours: '6',
   paused: '0',
+  attitude_play_delta: '5',
+  attitude_feed_delta: '8',
+  attitude_kick_delta: '-15',
+  attitude_escalation_threshold: '-30',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
