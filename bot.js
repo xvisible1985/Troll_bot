@@ -662,6 +662,15 @@ bot.onText(/\/troll_say ([\s\S]+)/, (msg, match) => {
   }
 });
 
+bot.onText(/\/troll_panel\b/, (msg) => {
+  if (!isAdminChat(msg)) return;
+  bot.sendMessage(msg.chat.id, 'Панель управления троллем:', {
+    reply_markup: {
+      inline_keyboard: [[{ text: '🧌 Открыть панель', web_app: { url: 'https://nordheimunion.ru/troll-admin' } }]],
+    },
+  });
+});
+
 // --- Admin commands: phrase management ---
 bot.onText(/\/troll_phrases\b(?:\s+(\S+))?/, (msg, match) => {
   if (!isAdminChat(msg)) return;
@@ -730,6 +739,7 @@ const TROLL_HELP_ADMIN = [
   '/troll_phrase_add <категория> <текст> — добавить фразу',
   '/troll_phrase_edit <ID> <текст> — изменить фразу',
   '/troll_phrase_del <ID> — удалить фразу',
+  '/troll_panel — открыть веб-панель управления (кнопкой)',
 ].join('\n');
 
 bot.onText(/\/troll_help\b/, (msg) => {
