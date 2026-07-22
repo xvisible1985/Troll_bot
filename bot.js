@@ -490,6 +490,26 @@ function getMentionName(entry) {
   return entry.username ? `@${entry.username}` : entry.firstName;
 }
 
+// Weighted pick from recentMessages: the more a person is disliked, the more
+// likely they are to be chosen as a mischief target (weight = 100 - attitude),
+// floored at 10 so even a beloved (+100) person can still occasionally be
+// picked, never dropping to zero chance.
+function pickMischiefTarget() {
+  const candidates = recentMessages.map((entry) => {
+    const row = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(entry.userId);
+    const attitude = row ? row.attitude : 0;
+    const weight = Math.max(10, 100 - attitude);
+    return { entry, attitude, weight };
+  });
+  const totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const candidate of candidates) {
+    roll -= candidate.weight;
+    if (roll <= 0) return candidate;
+  }
+  return candidates[candidates.length - 1];
+}
+
 // Tiered category names [mild, medium, mean] — indexed the same way as getMischiefTier.
 const TARGETED_PHRASE_TIER_CATEGORIES = ['targeted_phrase_mild', 'targeted_phrase_medium', 'targeted_phrase_mean'];
 const TARGETED_ACTION_TIER_CATEGORIES = ['targeted_action_mild', 'targeted_action_medium', 'targeted_action_mean'];
@@ -500,12 +520,16 @@ function triggerMischief(chatId) {
   const tier = getMischiefTier(state.mood, getSettingNumber('naughtiness'), stage);
 
   if (recentMessages.length > 0 && Math.random() < 0.5) {
-    const target = getMentionName(pick(recentMessages));
+    const targetInfo = pickMischiefTarget();
+    const target = getMentionName(targetInfo.entry);
+    const escalationThreshold = getSettingNumber('attitude_escalation_threshold');
+    const maxTier = STAGE_MAX_MISCHIEF_TIER[stage] ?? 2;
+    const effectiveTier = targetInfo.attitude <= escalationThreshold ? Math.min(maxTier, tier + 1) : tier;
     if (Math.random() < 0.5) {
-      const template = pickPhrase(TARGETED_PHRASE_TIER_CATEGORIES[tier], 'подмигнул {user}');
+      const template = pickPhrase(TARGETED_PHRASE_TIER_CATEGORIES[effectiveTier], 'подмигнул {user}');
       bot.sendMessage(chatId, `*${template.replace(/\{user\}/g, target)}*`).catch(() => {});
     } else {
-      const template = pickPhrase(TARGETED_ACTION_TIER_CATEGORIES[tier], 'подшутить над {user}');
+      const template = pickPhrase(TARGETED_ACTION_TIER_CATEGORIES[effectiveTier], 'подшутить над {user}');
       bot.sendMessage(chatId, `/try ${template.replace(/\{user\}/g, target)}`).catch(() => {});
     }
     return;
