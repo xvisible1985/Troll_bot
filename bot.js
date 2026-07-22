@@ -562,20 +562,20 @@ bot.onText(/\/troll_say ([\s\S]+)/, (msg, match) => {
 bot.onText(/\/troll_phrases\b(?:\s+(\S+))?/, (msg, match) => {
   if (!isAdminChat(msg)) return;
   const category = match[1];
-  if (!category) {
-    const lines = PHRASE_CATEGORIES.map((cat) => {
-      const count = db.prepare('SELECT COUNT(*) AS n FROM troll_phrases WHERE category = ?').get(cat).n;
-      return `${cat} (${count})`;
-    });
-    return bot.sendMessage(msg.chat.id, ['Категории фраз:', ...lines, '', 'Список фраз: /troll_phrases <категория>'].join('\n'));
+  if (category) {
+    if (!PHRASE_CATEGORIES.includes(category)) {
+      return bot.sendMessage(msg.chat.id, `Неизвестная категория: ${category}`);
+    }
+    const rows = db.prepare('SELECT id, text FROM troll_phrases WHERE category = ? ORDER BY id').all(category);
+    if (rows.length === 0) return bot.sendMessage(msg.chat.id, `В категории "${category}" пока пусто.`);
+    return bot.sendMessage(msg.chat.id, rows.map((r) => `#${r.id}: ${r.text}`).join('\n'));
   }
-  if (!PHRASE_CATEGORIES.includes(category)) {
-    return bot.sendMessage(msg.chat.id, `Неизвестная категория: ${category}`);
-  }
-  const rows = db.prepare('SELECT id, text FROM troll_phrases WHERE category = ? ORDER BY id').all(category);
-  if (rows.length === 0) return bot.sendMessage(msg.chat.id, `В категории "${category}" пока пусто.`);
-  const lines = rows.map((r) => `#${r.id}: ${r.text}`);
-  bot.sendMessage(msg.chat.id, lines.join('\n'));
+  const blocks = PHRASE_CATEGORIES.map((cat) => {
+    const rows = db.prepare('SELECT id, text FROM troll_phrases WHERE category = ? ORDER BY id').all(cat);
+    const lines = rows.length > 0 ? rows.map((r) => `#${r.id}: ${r.text}`) : ['(пусто)'];
+    return [`— ${cat} —`, ...lines].join('\n');
+  });
+  bot.sendMessage(msg.chat.id, blocks.join('\n\n'));
 });
 
 bot.onText(/\/troll_phrase_add (\S+) ([\s\S]+)/, (msg, match) => {
@@ -622,7 +622,7 @@ const TROLL_HELP_ADMIN = [
   '/troll_pause / /troll_resume — выключить/включить шалости',
   '/troll_reset — полный сброс тролля',
   '/troll_say <текст> — сказать текст от лица тролля тролльским акцентом',
-  '/troll_phrases [категория] — список категорий фраз или фраз в категории (с ID)',
+  '/troll_phrases [категория] — все реплики тролля по категориям (с ID), или только одна категория',
   '/troll_phrase_add <категория> <текст> — добавить фразу',
   '/troll_phrase_edit <ID> <текст> — изменить фразу',
   '/troll_phrase_del <ID> — удалить фразу',
