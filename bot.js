@@ -662,13 +662,24 @@ bot.onText(/\/troll_say ([\s\S]+)/, (msg, match) => {
   }
 });
 
-bot.onText(/\/troll_panel\b/, (msg) => {
+bot.onText(/\/troll_panel\b/, async (msg) => {
   if (!isAdminChat(msg)) return;
-  bot.sendMessage(msg.chat.id, 'Панель управления троллем:', {
-    reply_markup: {
-      inline_keyboard: [[{ text: '🧌 Открыть панель', web_app: { url: 'https://nordheimunion.ru/troll-admin' } }]],
-    },
-  });
+  // Telegram only allows web_app inline buttons in private chats with the
+  // bot (BUTTON_TYPE_INVALID otherwise) — the admin chat here is a group, so
+  // the button has to go to the admin's DM with the bot instead. That only
+  // works if they've already messaged the bot privately at least once
+  // (Telegram bots can't initiate a DM with someone who never has); if not,
+  // point them at /start there first.
+  try {
+    await bot.sendMessage(msg.from.id, 'Панель управления троллем:', {
+      reply_markup: {
+        inline_keyboard: [[{ text: '🧌 Открыть панель', web_app: { url: 'https://nordheimunion.ru/troll-admin' } }]],
+      },
+    });
+    bot.sendMessage(msg.chat.id, 'Кнопка отправлена в личные сообщения с ботом.');
+  } catch (err) {
+    bot.sendMessage(msg.chat.id, 'Не получилось написать в личку — сначала напиши боту /start в личных сообщениях, потом повтори /troll_panel.');
+  }
 });
 
 // --- Admin commands: phrase management ---
