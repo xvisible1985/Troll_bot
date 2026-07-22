@@ -149,35 +149,39 @@ const PHRASE_SEED = {
     'Моя расти большой от твоя еда!',
     'Моя сытый теперь, твоя хороший.',
   ],
+  // Action categories (mischief_*, targeted_phrase_*) are plain Russian, no
+  // troll accent — sent wrapped in asterisks as a roleplay-style action line,
+  // not as something the troll "says". Only actual dialogue (play/kick/feed/
+  // woken_angry) stays in troll-speak.
   mischief_mild: [
-    'Моя пошутить над курица соседа. Куд-кудах!',
-    'Моя бегать голый вокруг мост. Ой, весело!',
-    'Моя рассказать смешной история рыба.',
+    'пошутил над соседской курицей',
+    'пробежался голышом вокруг моста',
+    'рассказал смешную историю про рыбу',
   ],
   mischief_medium: [
-    'Моя стащить чужой еда с стол. Ням!',
-    'Моя спрятать твоя вещь под мост. Хи-хи.',
-    'Моя измазать грязь чужой дверь.',
+    'стащил чужую еду со стола',
+    'спрятал чью-то вещь под мостом',
+    'измазал грязью чужую дверь',
   ],
   mischief_mean: [
-    'Моя украсть весь еда деревня! Твоя плохой, моя злой!',
-    'Моя обозвать твоя всех плохими словами!',
-    'Моя сломать что-то нарочно. Моя не жалеть!',
+    'украл всю еду в деревне',
+    'обозвал всех плохими словами',
+    'сломал что-то нарочно',
   ],
   targeted_phrase_mild: [
-    'Моя корчить смешной рожица {user}!',
-    'Моя махать ручка {user} из-под мост!',
-    'Моя пускать пузыри на {user}!',
+    'скорчил смешную рожицу перед {user}',
+    'помахал ручкой {user} из-под моста',
+    'пустил мыльные пузыри на {user}',
   ],
   targeted_phrase_medium: [
-    'Моя дёрнуть {user} за ухо! Хи-хи!',
-    'Моя щекотать {user} веточка!',
-    'Моя обрызгать {user} вода из лужа!',
+    'дёрнул {user} за ухо',
+    'пощекотал {user} веточкой',
+    'обрызгал {user} водой из лужи',
   ],
   targeted_phrase_mean: [
-    'Моя пугать {user} страшный рожа!',
-    'Моя гнаться за {user} с палка!',
-    'Моя обзывать {user} нехороший слова!',
+    'напугал {user} страшной рожей',
+    'погнался за {user} с палкой',
+    'обозвал {user} нехорошими словами',
   ],
   targeted_action_mild: [
     'показать язык {user}',
@@ -458,15 +462,16 @@ function triggerMischief(chatId) {
   if (recentMessages.length > 0 && Math.random() < 0.5) {
     const target = getMentionName(pick(recentMessages));
     if (Math.random() < 0.5) {
-      const template = pickPhrase(TARGETED_PHRASE_TIER_CATEGORIES[tier], '{user}, моя тебя видеть!');
-      bot.sendMessage(chatId, template.replace(/\{user\}/g, target)).catch(() => {});
+      const template = pickPhrase(TARGETED_PHRASE_TIER_CATEGORIES[tier], 'подмигнул {user}');
+      bot.sendMessage(chatId, `*${template.replace(/\{user\}/g, target)}*`).catch(() => {});
     } else {
       const template = pickPhrase(TARGETED_ACTION_TIER_CATEGORIES[tier], 'подшутить над {user}');
       bot.sendMessage(chatId, `/try ${template.replace(/\{user\}/g, target)}`).catch(() => {});
     }
     return;
   }
-  let phrase = pickPhrase(MISCHIEF_TIER_CATEGORIES[tier], 'Моя шалить тихонько под мост...');
+  const action = pickPhrase(MISCHIEF_TIER_CATEGORIES[tier], 'шалит тихонько под мостом');
+  let phrase = `*${action}*`;
   if (Math.random() < 0.3) {
     const rememberedUser = maybeRememberedUser();
     if (rememberedUser) phrase += ` (твоя как ${rememberedUser}, твоя тоже моя помнить!)`;
