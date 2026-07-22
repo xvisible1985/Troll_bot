@@ -412,6 +412,8 @@ bot.onText(/\/play\b/, (msg) => {
   }
   db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10) WHERE id = 1').run();
   logAction(msg.from.id, msg.from.username || msg.from.first_name, 'play');
+  noticeUser(msg.from.id, msg.from.username, msg.from.first_name);
+  adjustAttitude(msg.from.id, getSettingNumber('attitude_play_delta'));
   bot.sendMessage(msg.chat.id, pickPhrase('play', 'Моя рада играть с твоя!'));
 });
 
@@ -421,6 +423,8 @@ bot.onText(/\/kick\b/, (msg) => {
   const silencedUntil = Math.floor(Date.now() / 1000) + 60 * 60;
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), silenced_until = ? WHERE id = 1').run(silencedUntil);
   logAction(msg.from.id, msg.from.username || msg.from.first_name, 'kick');
+  noticeUser(msg.from.id, msg.from.username, msg.from.first_name);
+  adjustAttitude(msg.from.id, getSettingNumber('attitude_kick_delta'));
   bot.sendMessage(msg.chat.id, pickPhrase('kick', 'Твоя злой! Моя обижаться!'));
 });
 
@@ -439,6 +443,8 @@ bot.onText(/\/feed\b/, (msg) => {
     'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), last_fed_at = ? WHERE id = 1'
   ).run(newFeedCount, now);
   logAction(msg.from.id, msg.from.username || msg.from.first_name, 'feed');
+  noticeUser(msg.from.id, msg.from.username, msg.from.first_name);
+  adjustAttitude(msg.from.id, getSettingNumber('attitude_feed_delta'));
   bot.sendMessage(msg.chat.id, pickPhrase('feed', 'Ням-ням, спасибо твоя!'));
   if (newStage > oldStage) {
     bot.sendMessage(msg.chat.id, `Тролль подрос! Теперь твоя видеть: ${STAGE_NAMES[newStage]}!`);
@@ -571,6 +577,7 @@ bot.on('message', (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || msg.chat.id !== state.chat_id) return;
   pushRecentMessage({ userId: msg.from.id, username: msg.from.username, firstName: msg.from.first_name });
+  noticeUser(msg.from.id, msg.from.username, msg.from.first_name);
   const newCount = state.message_count + 1;
   db.prepare('UPDATE troll_state SET message_count = ? WHERE id = 1').run(newCount);
   if (getSetting('paused') === '1' || isSilenced(state) || isNightNow()) return;
