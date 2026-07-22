@@ -105,6 +105,13 @@ db.exec(`
     value TEXT NOT NULL
   )
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS troll_phrases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    text TEXT NOT NULL
+  )
+`);
 
 const DEFAULT_SETTINGS = {
   sleep_start: '0',
@@ -119,6 +126,84 @@ const DEFAULT_SETTINGS = {
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
+}
+
+// Factory-default phrases, seeded into troll_phrases only on first run (table
+// empty) so admin edits/additions via /troll_phrase_* survive restarts and
+// never get duplicated back in. {user} is a plain-text placeholder — targeted
+// categories get it substituted with the target's @username/first name at
+// send time, via a simple string replace, not a JS template literal.
+const PHRASE_SEED = {
+  play: [
+    'Моя мурчать от радость! Твоя хороший друг.',
+    'Моя любить, когда твоя играть с моя!',
+    'Моя довольный, твоя добрый.',
+  ],
+  kick: [
+    'Ай! Твоя злой! Моя обижаться на твоя!',
+    'За что твоя моя бить?! Твоя плохой совсем!',
+    'Моя злиться на твоя! Твоя уходить!',
+  ],
+  feed: [
+    'Ням-ням! Моя кушать вкусно, спасибо твоя!',
+    'Моя расти большой от твоя еда!',
+    'Моя сытый теперь, твоя хороший.',
+  ],
+  mischief_mild: [
+    'Моя пошутить над курица соседа. Куд-кудах!',
+    'Моя бегать голый вокруг мост. Ой, весело!',
+    'Моя рассказать смешной история рыба.',
+  ],
+  mischief_medium: [
+    'Моя стащить чужой еда с стол. Ням!',
+    'Моя спрятать твоя вещь под мост. Хи-хи.',
+    'Моя измазать грязь чужой дверь.',
+  ],
+  mischief_mean: [
+    'Моя украсть весь еда деревня! Твоя плохой, моя злой!',
+    'Моя обозвать твоя всех плохими словами!',
+    'Моя сломать что-то нарочно. Моя не жалеть!',
+  ],
+  targeted_phrase_mild: [
+    'Моя корчить смешной рожица {user}!',
+    'Моя махать ручка {user} из-под мост!',
+    'Моя пускать пузыри на {user}!',
+  ],
+  targeted_phrase_medium: [
+    'Моя дёрнуть {user} за ухо! Хи-хи!',
+    'Моя щекотать {user} веточка!',
+    'Моя обрызгать {user} вода из лужа!',
+  ],
+  targeted_phrase_mean: [
+    'Моя пугать {user} страшный рожа!',
+    'Моя гнаться за {user} с палка!',
+    'Моя обзывать {user} нехороший слова!',
+  ],
+  targeted_action_mild: [
+    'показать язык {user}',
+    'подмигнуть {user}',
+    'спрятаться от {user} под мост',
+  ],
+  targeted_action_medium: [
+    'спрятать телефон {user} под мост',
+    'связать шнурки {user}',
+    'подложить лягушку в карман {user}',
+  ],
+  targeted_action_mean: [
+    'украсть носки у {user}',
+    'облить водой {user} из-под моста',
+    'столкнуть {user} в лужа',
+  ],
+};
+
+const PHRASE_CATEGORIES = Object.keys(PHRASE_SEED);
+
+const phraseCount = db.prepare('SELECT COUNT(*) AS n FROM troll_phrases').get().n;
+if (phraseCount === 0) {
+  const insertPhrase = db.prepare('INSERT INTO troll_phrases (category, text) VALUES (?, ?)');
+  for (const [category, texts] of Object.entries(PHRASE_SEED)) {
+    for (const text of texts) insertPhrase.run(category, text);
+  }
 }
 
 console.log('Тролль-бот: схема готова.');
@@ -140,6 +225,15 @@ function setSetting(key, value) {
 // --- Misc helpers ---
 function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function getPhrases(category) {
+  return db.prepare('SELECT text FROM troll_phrases WHERE category = ?').all(category).map((r) => r.text);
+}
+
+function pickPhrase(category, fallback) {
+  const phrases = getPhrases(category);
+  return phrases.length > 0 ? pick(phrases) : fallback;
 }
 
 function isSilenced(state) {
@@ -245,30 +339,12 @@ bot.onText(/\/troll\b/, (msg) => {
 });
 
 // --- Public commands: play / kick / feed ---
-const PLAY_PHRASES = [
-  'Моя мурчать от радость! Твоя хороший друг.',
-  'Моя любить, когда твоя играть с моя!',
-  'Моя довольный, твоя добрый.',
-];
-
-const KICK_PHRASES = [
-  'Ай! Твоя злой! Моя обижаться на твоя!',
-  'За что твоя моя бить?! Твоя плохой совсем!',
-  'Моя злиться на твоя! Твоя уходить!',
-];
-
-const FEED_PHRASES = [
-  'Ням-ням! Моя кушать вкусно, спасибо твоя!',
-  'Моя расти большой от твоя еда!',
-  'Моя сытый теперь, твоя хороший.',
-];
-
 bot.onText(/\/play\b/, (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || msg.chat.id !== state.chat_id || isSilenced(state)) return;
   db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10) WHERE id = 1').run();
   logAction(msg.from.id, msg.from.username || msg.from.first_name, 'play');
-  bot.sendMessage(msg.chat.id, pick(PLAY_PHRASES));
+  bot.sendMessage(msg.chat.id, pickPhrase('play', 'Моя рада играть с твоя!'));
 });
 
 bot.onText(/\/kick\b/, (msg) => {
@@ -277,7 +353,7 @@ bot.onText(/\/kick\b/, (msg) => {
   const silencedUntil = Math.floor(Date.now() / 1000) + 60 * 60;
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), silenced_until = ? WHERE id = 1').run(silencedUntil);
   logAction(msg.from.id, msg.from.username || msg.from.first_name, 'kick');
-  bot.sendMessage(msg.chat.id, pick(KICK_PHRASES));
+  bot.sendMessage(msg.chat.id, pickPhrase('kick', 'Твоя злой! Моя обижаться!'));
 });
 
 bot.onText(/\/feed\b/, (msg) => {
@@ -291,35 +367,18 @@ bot.onText(/\/feed\b/, (msg) => {
     'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), last_fed_at = ? WHERE id = 1'
   ).run(newFeedCount, now);
   logAction(msg.from.id, msg.from.username || msg.from.first_name, 'feed');
-  bot.sendMessage(msg.chat.id, pick(FEED_PHRASES));
+  bot.sendMessage(msg.chat.id, pickPhrase('feed', 'Ням-ням, спасибо твоя!'));
   if (newStage > oldStage) {
     bot.sendMessage(msg.chat.id, `Тролль подрос! Теперь твоя видеть: ${STAGE_NAMES[newStage]}!`);
   }
 });
 
 // --- Autonomous mischief ---
-const MISCHIEF_MILD = [
-  'Моя пошутить над курица соседа. Куд-кудах!',
-  'Моя бегать голый вокруг мост. Ой, весело!',
-  'Моя рассказать смешной история рыба.',
-];
-
-const MISCHIEF_MEDIUM = [
-  'Моя стащить чужой еда с стол. Ням!',
-  'Моя спрятать твоя вещь под мост. Хи-хи.',
-  'Моя измазать грязь чужой дверь.',
-];
-
-const MISCHIEF_MEAN = [
-  'Моя украсть весь еда деревня! Твоя плохой, моя злой!',
-  'Моя обозвать твоя всех плохими словами!',
-  'Моя сломать что-то нарочно. Моя не жалеть!',
-];
-
 // Stage caps how serious mischief can get, regardless of mood/naughtiness:
 // малыш (1) never goes past mild, подросток (2) never past medium, молодой/
 // взрослый (3-4) can reach the full mean tier. Tiers: 0=mild, 1=medium, 2=mean.
 const STAGE_MAX_MISCHIEF_TIER = { 1: 0, 2: 1, 3: 2, 4: 2 };
+const MISCHIEF_TIER_CATEGORIES = ['mischief_mild', 'mischief_medium', 'mischief_mean'];
 
 function getMischiefTier(mood, naughtiness, stage) {
   const score = naughtiness - Math.floor(mood / 20);
@@ -329,8 +388,6 @@ function getMischiefTier(mood, naughtiness, stage) {
   const maxTier = STAGE_MAX_MISCHIEF_TIER[stage] ?? 2;
   return Math.min(tier, maxTier);
 }
-
-const MISCHIEF_POOLS = [MISCHIEF_MILD, MISCHIEF_MEDIUM, MISCHIEF_MEAN];
 
 function maybeRememberedUser() {
   const row = db.prepare('SELECT username FROM troll_actions ORDER BY RANDOM() LIMIT 1').get();
@@ -355,42 +412,9 @@ function getMentionName(entry) {
   return entry.username ? `@${entry.username}` : entry.firstName;
 }
 
-// Tiered [mild, medium, mean] — indexed the same way as MISCHIEF_POOLS/getMischiefTier.
-const TARGETED_MISCHIEF_PHRASES = [
-  [
-    (user) => `Моя корчить смешной рожица ${user}!`,
-    (user) => `Моя махать ручка ${user} из-под мост!`,
-    (user) => `Моя пускать пузыри на ${user}!`,
-  ],
-  [
-    (user) => `Моя дёрнуть ${user} за ухо! Хи-хи!`,
-    (user) => `Моя щекотать ${user} веточка!`,
-    (user) => `Моя обрызгать ${user} вода из лужа!`,
-  ],
-  [
-    (user) => `Моя пугать ${user} страшный рожа!`,
-    (user) => `Моя гнаться за ${user} с палка!`,
-    (user) => `Моя обзывать ${user} нехороший слова!`,
-  ],
-];
-
-const TARGETED_MISCHIEF_ACTIONS = [
-  [
-    (user) => `показать язык ${user}`,
-    (user) => `подмигнуть ${user}`,
-    (user) => `спрятаться от ${user} под мост`,
-  ],
-  [
-    (user) => `спрятать телефон ${user} под мост`,
-    (user) => `связать шнурки ${user}`,
-    (user) => `подложить лягушку в карман ${user}`,
-  ],
-  [
-    (user) => `украсть носки у ${user}`,
-    (user) => `облить водой ${user} из-под моста`,
-    (user) => `столкнуть ${user} в лужа`,
-  ],
-];
+// Tiered category names [mild, medium, mean] — indexed the same way as getMischiefTier.
+const TARGETED_PHRASE_TIER_CATEGORIES = ['targeted_phrase_mild', 'targeted_phrase_medium', 'targeted_phrase_mean'];
+const TARGETED_ACTION_TIER_CATEGORIES = ['targeted_action_mild', 'targeted_action_medium', 'targeted_action_mean'];
 
 function triggerMischief(chatId) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
@@ -400,13 +424,15 @@ function triggerMischief(chatId) {
   if (recentMessages.length > 0 && Math.random() < 0.5) {
     const target = getMentionName(pick(recentMessages));
     if (Math.random() < 0.5) {
-      bot.sendMessage(chatId, pick(TARGETED_MISCHIEF_PHRASES[tier])(target)).catch(() => {});
+      const template = pickPhrase(TARGETED_PHRASE_TIER_CATEGORIES[tier], '{user}, моя тебя видеть!');
+      bot.sendMessage(chatId, template.replace(/\{user\}/g, target)).catch(() => {});
     } else {
-      bot.sendMessage(chatId, `/try ${pick(TARGETED_MISCHIEF_ACTIONS[tier])(target)}`).catch(() => {});
+      const template = pickPhrase(TARGETED_ACTION_TIER_CATEGORIES[tier], 'подшутить над {user}');
+      bot.sendMessage(chatId, `/try ${template.replace(/\{user\}/g, target)}`).catch(() => {});
     }
     return;
   }
-  let phrase = pick(MISCHIEF_POOLS[tier]);
+  let phrase = pickPhrase(MISCHIEF_TIER_CATEGORIES[tier], 'Моя шалить тихонько под мост...');
   if (Math.random() < 0.3) {
     const rememberedUser = maybeRememberedUser();
     if (rememberedUser) phrase += ` (твоя как ${rememberedUser}, твоя тоже моя помнить!)`;
@@ -532,6 +558,52 @@ bot.onText(/\/troll_say ([\s\S]+)/, (msg, match) => {
   }
 });
 
+// --- Admin commands: phrase management ---
+bot.onText(/\/troll_phrases\b(?:\s+(\S+))?/, (msg, match) => {
+  if (!isAdminChat(msg)) return;
+  const category = match[1];
+  if (!category) {
+    const lines = PHRASE_CATEGORIES.map((cat) => {
+      const count = db.prepare('SELECT COUNT(*) AS n FROM troll_phrases WHERE category = ?').get(cat).n;
+      return `${cat} (${count})`;
+    });
+    return bot.sendMessage(msg.chat.id, ['Категории фраз:', ...lines, '', 'Список фраз: /troll_phrases <категория>'].join('\n'));
+  }
+  if (!PHRASE_CATEGORIES.includes(category)) {
+    return bot.sendMessage(msg.chat.id, `Неизвестная категория: ${category}`);
+  }
+  const rows = db.prepare('SELECT id, text FROM troll_phrases WHERE category = ? ORDER BY id').all(category);
+  if (rows.length === 0) return bot.sendMessage(msg.chat.id, `В категории "${category}" пока пусто.`);
+  const lines = rows.map((r) => `#${r.id}: ${r.text}`);
+  bot.sendMessage(msg.chat.id, lines.join('\n'));
+});
+
+bot.onText(/\/troll_phrase_add (\S+) ([\s\S]+)/, (msg, match) => {
+  if (!isAdminChat(msg)) return;
+  const category = match[1];
+  const text = match[2];
+  if (!PHRASE_CATEGORIES.includes(category)) {
+    return bot.sendMessage(msg.chat.id, `Неизвестная категория: ${category}`);
+  }
+  const info = db.prepare('INSERT INTO troll_phrases (category, text) VALUES (?, ?)').run(category, text);
+  bot.sendMessage(msg.chat.id, `Добавлено #${info.lastInsertRowid} в "${category}".`);
+});
+
+bot.onText(/\/troll_phrase_del (\d+)/, (msg, match) => {
+  if (!isAdminChat(msg)) return;
+  const id = Number(match[1]);
+  const info = db.prepare('DELETE FROM troll_phrases WHERE id = ?').run(id);
+  bot.sendMessage(msg.chat.id, info.changes > 0 ? `Удалено #${id}.` : `Не найдено #${id}.`);
+});
+
+bot.onText(/\/troll_phrase_edit (\d+) ([\s\S]+)/, (msg, match) => {
+  if (!isAdminChat(msg)) return;
+  const id = Number(match[1]);
+  const text = match[2];
+  const info = db.prepare('UPDATE troll_phrases SET text = ? WHERE id = ?').run(text, id);
+  bot.sendMessage(msg.chat.id, info.changes > 0 ? `Обновлено #${id}.` : `Не найдено #${id}.`);
+});
+
 // --- Help ---
 const TROLL_HELP_PUBLIC = [
   '🧌 Тролль под мостом:',
@@ -550,6 +622,10 @@ const TROLL_HELP_ADMIN = [
   '/troll_pause / /troll_resume — выключить/включить шалости',
   '/troll_reset — полный сброс тролля',
   '/troll_say <текст> — сказать текст от лица тролля тролльским акцентом',
+  '/troll_phrases [категория] — список категорий фраз или фраз в категории (с ID)',
+  '/troll_phrase_add <категория> <текст> — добавить фразу',
+  '/troll_phrase_edit <ID> <текст> — изменить фразу',
+  '/troll_phrase_del <ID> — удалить фразу',
 ].join('\n');
 
 bot.onText(/\/troll_help\b/, (msg) => {
