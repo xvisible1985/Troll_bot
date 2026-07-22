@@ -273,6 +273,26 @@ function logAction(userId, username, action) {
   db.prepare('INSERT INTO troll_actions (user_id, username, action) VALUES (?, ?, ?)').run(userId, username, action);
 }
 
+// --- Relationships ---
+// Called anywhere the troll "notices" someone — any ordinary message in its
+// home chat, or /play, /feed, /kick (even from someone who only ever uses
+// commands and never sends plain messages). Upserts so username/first_name
+// stay current if the person renames themselves; attitude starts at 0
+// (neutral) and is never touched here — only adjustAttitude moves it.
+function noticeUser(userId, username, firstName) {
+  const now = Math.floor(Date.now() / 1000);
+  const existing = db.prepare('SELECT 1 FROM troll_relationships WHERE user_id = ?').get(userId);
+  if (existing) {
+    db.prepare('UPDATE troll_relationships SET username = ?, first_name = ?, last_seen_at = ? WHERE user_id = ?').run(username, firstName, now, userId);
+  } else {
+    db.prepare('INSERT INTO troll_relationships (user_id, username, first_name, attitude, last_seen_at) VALUES (?, ?, ?, 0, ?)').run(userId, username, firstName, now);
+  }
+}
+
+function adjustAttitude(userId, delta) {
+  db.prepare('UPDATE troll_relationships SET attitude = MAX(-100, MIN(100, attitude + ?)) WHERE user_id = ?').run(delta, userId);
+}
+
 // --- Growth ---
 const STAGE_NAMES = { 1: 'малыш', 2: 'подросток', 3: 'молодой', 4: 'взрослый' };
 
