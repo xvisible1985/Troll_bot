@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Тролль под мостом</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="topbar-row">
+      <div class="troll-badge">🧌</div>
+      <div class="troll-title">
+        <h1 class="display">Тролль под мостом</h1>
+        <div class="sub" id="troll-sub">загрузка…</div>
+      </div>
+    </div>
+    <div class="status-chips" id="status-chips"></div>
+  </div>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab-btn active" data-tab="status">Статус</button>
+    <button class="tab-btn" data-tab="settings">Настройки</button>
+    <button class="tab-btn" data-tab="phrases">Фразы</button>
+    <button class="tab-btn" data-tab="relationships">Отношения</button>
+    <button class="tab-btn" data-tab="say">Сказать</button>
+  </nav>
+
+  <main>
+    <section class="panel active" id="panel-status"></section>
+    <section class="panel" id="panel-settings"></section>
+    <section class="panel" id="panel-phrases"></section>
+    <section class="panel" id="panel-relationships"></section>
+    <section class="panel" id="panel-say"></section>
+  </main>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
