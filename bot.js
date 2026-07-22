@@ -194,6 +194,17 @@ const PHRASE_SEED = {
     'облить водой {user} из-под моста',
     'столкнуть {user} в лужа',
   ],
+  woken_angry: [
+    'Ррррр! Кто будить моя?! Моя спать хотеть!',
+    'Твоя разбудить моя! Моя очень злой сейчас!',
+    'Не мешать моя спать! Уходи!',
+  ],
+  activity_awake: [
+    'бродит под мостом',
+    'ждёт, когда покормят',
+    'греется на солнышке',
+    'что-то мастерит из веточек',
+  ],
 };
 
 const PHRASE_CATEGORIES = Object.keys(PHRASE_SEED);
@@ -324,6 +335,20 @@ bot.onText(/\/troll_here\b/, async (msg) => {
   bot.sendMessage(msg.chat.id, 'В деревне появился детёныш тролля и поселился под мостом!');
 });
 
+// Current-activity line for the /troll card: sulking (post-kick silence) beats
+// asleep, which beats a random "awake" flavor line — same precedence order
+// used everywhere else silence/sleep interact (silence = total override).
+function getActivityLine(state) {
+  if (isSilenced(state)) {
+    const minutesLeft = Math.max(1, Math.ceil((state.silenced_until * 1000 - Date.now()) / 60000));
+    return `дуется после пинка (ещё ~${minutesLeft} мин)`;
+  }
+  if (state.is_asleep) {
+    return 'спит под мостом, тихо похрапывает';
+  }
+  return pickPhrase('activity_awake', 'бродит под мостом');
+}
+
 bot.onText(/\/troll\b/, (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет. Позови его через /troll_here.');
@@ -334,6 +359,7 @@ bot.onText(/\/troll\b/, (msg) => {
     `Вес: ${displayWeight} кг`,
     `Настроение: ${moodWord(state.mood)}`,
     `Стадия: ${STAGE_NAMES[getStage(state.feed_count)]}`,
+    `Занятие: ${getActivityLine(state)}`,
   ];
   bot.sendMessage(msg.chat.id, lines.join('\n'));
 });
@@ -342,6 +368,10 @@ bot.onText(/\/troll\b/, (msg) => {
 bot.onText(/\/play\b/, (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || msg.chat.id !== state.chat_id || isSilenced(state)) return;
+  if (state.is_asleep) {
+    db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
+    return bot.sendMessage(msg.chat.id, pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!'));
+  }
   db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10) WHERE id = 1').run();
   logAction(msg.from.id, msg.from.username || msg.from.first_name, 'play');
   bot.sendMessage(msg.chat.id, pickPhrase('play', 'Моя рада играть с твоя!'));
@@ -359,6 +389,10 @@ bot.onText(/\/kick\b/, (msg) => {
 bot.onText(/\/feed\b/, (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || msg.chat.id !== state.chat_id || isSilenced(state)) return;
+  if (state.is_asleep) {
+    db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
+    return bot.sendMessage(msg.chat.id, pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!'));
+  }
   const newFeedCount = state.feed_count + 1;
   const oldStage = getStage(state.feed_count);
   const newStage = getStage(newFeedCount);
