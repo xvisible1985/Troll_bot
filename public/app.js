@@ -6,7 +6,7 @@ if (window.Telegram?.WebApp) {
 
 async function apiFetch(path, options = {}) {
   const headers = Object.assign({ 'X-Telegram-Init-Data': initData }, options.headers || {});
-  const res = await fetch('/api' + path, Object.assign({}, options, { headers }));
+  const res = await fetch('/troll-admin/api' + path, Object.assign({}, options, { headers }));
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);
@@ -279,7 +279,7 @@ function renderSay() {
     if (photoInput.files[0]) formData.append('photo', photoInput.files[0]);
     status.textContent = 'Отправка…';
     try {
-      const res = await fetch('/api/say', { method: 'POST', headers: { 'X-Telegram-Init-Data': initData }, body: formData });
+      const res = await fetch('/troll-admin/api/say', { method: 'POST', headers: { 'X-Telegram-Init-Data': initData }, body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'ошибка');
       status.textContent = 'Отправлено: ' + data.sent;

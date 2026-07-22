@@ -13,7 +13,13 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+// Mounted at /troll-admin, not root — nginx's proxy_pass here has no path
+// component, so it forwards the original request URI unchanged (including
+// the /troll-admin prefix) rather than stripping it. Matching that prefix
+// here, and in every absolute path the frontend uses, is simpler and more
+// robust than trying to strip it in nginx (which would break as soon as any
+// asset/API path assumed root-relative resolution).
+app.use('/troll-admin', express.static(path.join(__dirname, 'public')));
 
 const api = express.Router();
 api.use(requireAdmin);
@@ -121,7 +127,7 @@ api.post('/say', upload.single('photo'), async (req, res) => {
   }
 });
 
-app.use('/api', api);
+app.use('/troll-admin/api', api);
 
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`Админ-панель слушает на 127.0.0.1:${PORT}`);
