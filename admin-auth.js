@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const https = require('https');
 const TelegramBot = require('node-telegram-bot-api');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { SocksProxyAgent } = require('socks-proxy-agent');
@@ -75,4 +76,16 @@ async function requireAdmin(req, res, next) {
   next();
 }
 
-module.exports = { bot, verifyInitData, isAdmin, requireAdmin };
+// Streams a Telegram-hosted file (a sticker's image bytes) back to whoever
+// calls this, through the SAME proxy agent used for every other Bot API
+// call — needed since api.telegram.org is blocked from Russia. Never expose
+// the raw getFileLink URL to a browser: it embeds the bot token.
+function fetchTelegramFile(fileId) {
+  return bot.getFileLink(fileId).then((fileLink) => new Promise((resolve, reject) => {
+    https.get(fileLink, { agent }, (fileRes) => {
+      resolve({ contentType: fileRes.headers['content-type'] || 'application/octet-stream', stream: fileRes });
+    }).on('error', reject);
+  }));
+}
+
+module.exports = { bot, verifyInitData, isAdmin, requireAdmin, fetchTelegramFile };
