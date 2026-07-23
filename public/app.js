@@ -9,7 +9,8 @@ async function apiFetch(path, options = {}) {
   const res = await fetch('/troll-admin/api' + path, Object.assign({}, options, { headers }));
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    const message = [body.error, body.detail].filter(Boolean).join(': ');
+    throw new Error(message || `HTTP ${res.status}`);
   }
   return res.status === 204 ? null : res.json();
 }
