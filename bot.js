@@ -387,6 +387,16 @@ function getActivityLine(state) {
   return pickPhrase('activity_awake', 'бродит под мостом');
 }
 
+const TROLL_ACTION_KEYBOARD = {
+  reply_markup: {
+    inline_keyboard: [[
+      { text: '🎮 Играть', callback_data: 'troll_play' },
+      { text: '🍗 Покормить', callback_data: 'troll_feed' },
+      { text: '👢 Пнуть', callback_data: 'troll_kick' },
+    ]],
+  },
+};
+
 bot.onText(/\/troll\b/, (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет. Позови его через /troll_here.');
@@ -399,41 +409,47 @@ bot.onText(/\/troll\b/, (msg) => {
     `Стадия: ${STAGE_NAMES[getStage(state.feed_count)]}`,
     `Занятие: ${getActivityLine(state)}`,
   ];
-  bot.sendMessage(msg.chat.id, lines.join('\n'));
+  bot.sendMessage(msg.chat.id, lines.join('\n'), TROLL_ACTION_KEYBOARD);
 });
 
 // --- Public commands: play / kick / feed ---
-bot.onText(/\/play\b/, (msg) => {
+// Extracted from the command handlers so the /troll card's inline buttons
+// (and the callback_query handler below) can trigger the exact same logic
+// as typing /play, /feed, /kick — only chatId/from are actually used by any
+// of these, so a callback_query's message.chat/from line up just as well.
+function performPlay(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || msg.chat.id !== state.chat_id || isSilenced(state)) return;
+  if (!state || chatId !== state.chat_id || isSilenced(state)) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    return bot.sendMessage(msg.chat.id, pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!'));
+    bot.sendMessage(chatId, pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!'));
+    return;
   }
   db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10) WHERE id = 1').run();
-  logAction(msg.from.id, msg.from.username || msg.from.first_name, 'play');
-  noticeUser(msg.from.id, msg.from.username, msg.from.first_name);
-  adjustAttitude(msg.from.id, getSettingNumber('attitude_play_delta'));
-  bot.sendMessage(msg.chat.id, pickPhrase('play', 'Моя рада играть с твоя!'));
-});
+  logAction(from.id, from.username || from.first_name, 'play');
+  noticeUser(from.id, from.username, from.first_name);
+  adjustAttitude(from.id, getSettingNumber('attitude_play_delta'));
+  bot.sendMessage(chatId, pickPhrase('play', 'Моя рада играть с твоя!'));
+}
 
-bot.onText(/\/kick\b/, (msg) => {
+function performKick(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || msg.chat.id !== state.chat_id || isSilenced(state)) return;
+  if (!state || chatId !== state.chat_id || isSilenced(state)) return;
   const silencedUntil = Math.floor(Date.now() / 1000) + 60 * 60;
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), silenced_until = ? WHERE id = 1').run(silencedUntil);
-  logAction(msg.from.id, msg.from.username || msg.from.first_name, 'kick');
-  noticeUser(msg.from.id, msg.from.username, msg.from.first_name);
-  adjustAttitude(msg.from.id, getSettingNumber('attitude_kick_delta'));
-  bot.sendMessage(msg.chat.id, pickPhrase('kick', 'Твоя злой! Моя обижаться!'));
-});
+  logAction(from.id, from.username || from.first_name, 'kick');
+  noticeUser(from.id, from.username, from.first_name);
+  adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
+  bot.sendMessage(chatId, pickPhrase('kick', 'Твоя злой! Моя обижаться!'));
+}
 
-bot.onText(/\/feed\b/, (msg) => {
+function performFeed(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || msg.chat.id !== state.chat_id || isSilenced(state)) return;
+  if (!state || chatId !== state.chat_id || isSilenced(state)) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    return bot.sendMessage(msg.chat.id, pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!'));
+    bot.sendMessage(chatId, pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!'));
+    return;
   }
   const newFeedCount = state.feed_count + 1;
   const oldStage = getStage(state.feed_count);
@@ -442,13 +458,38 @@ bot.onText(/\/feed\b/, (msg) => {
   db.prepare(
     'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), last_fed_at = ? WHERE id = 1'
   ).run(newFeedCount, now);
-  logAction(msg.from.id, msg.from.username || msg.from.first_name, 'feed');
-  noticeUser(msg.from.id, msg.from.username, msg.from.first_name);
-  adjustAttitude(msg.from.id, getSettingNumber('attitude_feed_delta'));
-  bot.sendMessage(msg.chat.id, pickPhrase('feed', 'Ням-ням, спасибо твоя!'));
+  logAction(from.id, from.username || from.first_name, 'feed');
+  noticeUser(from.id, from.username, from.first_name);
+  adjustAttitude(from.id, getSettingNumber('attitude_feed_delta'));
+  bot.sendMessage(chatId, pickPhrase('feed', 'Ням-ням, спасибо твоя!'));
   if (newStage > oldStage) {
-    bot.sendMessage(msg.chat.id, `Тролль подрос! Теперь твоя видеть: ${STAGE_NAMES[newStage]}!`);
+    bot.sendMessage(chatId, `Тролль подрос! Теперь твоя видеть: ${STAGE_NAMES[newStage]}!`);
   }
+}
+
+bot.onText(/\/play\b/, (msg) => {
+  performPlay(msg.chat.id, msg.from);
+});
+
+bot.onText(/\/kick\b/, (msg) => {
+  performKick(msg.chat.id, msg.from);
+});
+
+bot.onText(/\/feed\b/, (msg) => {
+  performFeed(msg.chat.id, msg.from);
+});
+
+// Buttons on the /troll status card (callback_data-type inline buttons work
+// fine in groups, unlike web_app buttons — that restriction only applies to
+// the Mini App admin panel's link, not these).
+bot.on('callback_query', (query) => {
+  const chatId = query.message?.chat?.id;
+  if (!chatId) return;
+  if (query.data === 'troll_play') performPlay(chatId, query.from);
+  else if (query.data === 'troll_feed') performFeed(chatId, query.from);
+  else if (query.data === 'troll_kick') performKick(chatId, query.from);
+  else return;
+  bot.answerCallbackQuery(query.id).catch(() => {});
 });
 
 // --- Autonomous mischief ---
