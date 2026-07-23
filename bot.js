@@ -3,6 +3,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { SocksProxyAgent } = require('socks-proxy-agent');
 const Database = require('better-sqlite3');
+const { renderTrollCard } = require('./card');
 
 const token = process.env.BOT_TOKEN;
 const proxy = process.env.PROXY_URL;
@@ -590,23 +591,46 @@ const TROLL_ACTION_KEYBOARD = {
   },
 };
 
-bot.onText(/\/troll\b/, (msg) => {
+bot.onText(/\/troll\b/, async (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет. Позови его через /troll_here.');
   if (msg.chat.id !== state.chat_id) return;
   const displayWeight = Math.round(getWeight(state.feed_count) + (Math.random() * 6 - 3));
   const relRow = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(msg.from.id);
   const attitude = relRow ? relRow.attitude : 0;
-  const lines = [
-    `❤️ Здоровье: ${state.health}/100`,
-    `🍖 Сытость: ${state.satiety}/100 (${satietyWord(state.satiety)})`,
-    `⚖️ Вес: ${displayWeight} кг`,
-    `😊 Настроение: ${moodWord(state.mood)}`,
-    `🌱 Стадия: ${STAGE_NAMES[state.stage]}`,
-    `🎭 Занятие: ${getActivityLine(state)}`,
-    `🤝 Отношение к тебе: ${attitudeWord(attitude)} (${attitude > 0 ? '+' : ''}${attitude})`,
-  ];
-  bot.sendMessage(msg.chat.id, lines.join('\n'), TROLL_ACTION_KEYBOARD);
+  const activity = getActivityLine(state);
+
+  // Rendered fresh per call (attitude is per-viewer, activity/stats change
+  // constantly) — falls back to the old plain-text card if canvas ever
+  // fails to render (e.g. a native-binary hiccup on the server), so /troll
+  // never breaks outright.
+  try {
+    const buffer = await renderTrollCard({
+      health: state.health,
+      satiety: state.satiety,
+      satietyWord: satietyWord(state.satiety),
+      mood: state.mood,
+      moodWord: moodWord(state.mood),
+      attitude,
+      attitudeWord: attitudeWord(attitude),
+      stageName: STAGE_NAMES[state.stage],
+      weight: displayWeight,
+      activity,
+    });
+    await bot.sendPhoto(msg.chat.id, buffer, TROLL_ACTION_KEYBOARD);
+  } catch (err) {
+    console.error('troll card render failed, falling back to text:', err.message);
+    const lines = [
+      `❤️ Здоровье: ${state.health}/100`,
+      `🍖 Сытость: ${state.satiety}/100 (${satietyWord(state.satiety)})`,
+      `⚖️ Вес: ${displayWeight} кг`,
+      `😊 Настроение: ${moodWord(state.mood)}`,
+      `🌱 Стадия: ${STAGE_NAMES[state.stage]}`,
+      `🎭 Занятие: ${activity}`,
+      `🤝 Отношение к тебе: ${attitudeWord(attitude)} (${attitude > 0 ? '+' : ''}${attitude})`,
+    ];
+    bot.sendMessage(msg.chat.id, lines.join('\n'), TROLL_ACTION_KEYBOARD);
+  }
 });
 
 bot.onText(/\/troll_character\b/, (msg) => {

@@ -114,6 +114,17 @@ async function loadStatus() {
         <button class="btn ghost" id="btn-reset">↺ Полный сброс</button>
       </div>
     </div>
+    <div class="card">
+      <p class="eyebrow">Портрет тролля (для картинки /troll)</p>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <img id="portrait-preview" style="width:88px; height:88px; object-fit:cover; border-radius:10px; background:var(--bg-sunken); flex-shrink:0;" alt="">
+        <div style="flex:1; min-width:0;">
+          <input type="file" id="portrait-file" accept="image/png" style="width:100%; font-size:12px;">
+          <button class="btn" id="portrait-upload-btn" style="margin-top:8px;">Загрузить</button>
+        </div>
+      </div>
+      <div id="portrait-status" style="margin-top:8px; font-size:12.5px; color:var(--text-muted);"></div>
+    </div>
   `;
   document.getElementById('btn-pause').addEventListener('click', async () => {
     await apiFetch(data.paused ? '/resume' : '/pause', { method: 'POST' });
@@ -131,6 +142,46 @@ async function loadStatus() {
       body: JSON.stringify({ stage: Number(e.target.value) }),
     });
     loadStatus();
+  });
+
+  // Plain <img src> can't carry the auth header (same issue as sticker
+  // previews) — fetch with the header and hand the browser a blob: URL.
+  (async () => {
+    const img = document.getElementById('portrait-preview');
+    try {
+      const res = await fetch('/troll-admin/api/troll-portrait/image', {
+        headers: { 'X-Telegram-Init-Data': initData },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      img.src = URL.createObjectURL(blob);
+    } catch {
+      img.removeAttribute('src');
+    }
+  })();
+
+  document.getElementById('portrait-upload-btn').addEventListener('click', async () => {
+    const fileInput = document.getElementById('portrait-file');
+    const status = document.getElementById('portrait-status');
+    if (!fileInput.files[0]) return;
+    const formData = new FormData();
+    formData.append('portrait', fileInput.files[0]);
+    status.textContent = 'Загружаю…';
+    try {
+      const res = await fetch('/troll-admin/api/troll-portrait', {
+        method: 'POST',
+        headers: { 'X-Telegram-Init-Data': initData },
+        body: formData,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error([body.error, body.detail].filter(Boolean).join(': ') || `HTTP ${res.status}`);
+      }
+      status.textContent = 'Портрет обновлён.';
+      loadStatus();
+    } catch (err) {
+      status.textContent = 'Ошибка: ' + err.message;
+    }
   });
 }
 

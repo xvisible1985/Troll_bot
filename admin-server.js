@@ -1,7 +1,9 @@
 require('dotenv').config();
+const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const multer = require('multer');
+const { PORTRAIT_PATH } = require('./card');
 const {
   db, getSetting, setSetting, getAllSettings, DEFAULT_SETTINGS_KEYS,
   STAGE_NAMES, getWeight, moodWord, satietyWord, getActivityLine, trollify, rollTrollTry,
@@ -201,6 +203,23 @@ api.get('/stickers/:id/image', async (req, res) => {
     console.error(`sticker image proxy failed for id=${req.params.id}:`, err.message);
     res.status(502).end();
   }
+});
+
+// Single portrait file for the /troll image card (card.js reads the same
+// PORTRAIT_PATH). Overwritten in place on each upload — no history needed.
+api.post('/troll-portrait', upload.single('portrait'), (req, res) => {
+  if (!req.file || !req.file.mimetype.startsWith('image/')) {
+    return res.status(400).json({ error: 'portrait image file required' });
+  }
+  fs.mkdirSync(path.dirname(PORTRAIT_PATH), { recursive: true });
+  fs.writeFileSync(PORTRAIT_PATH, req.file.buffer);
+  res.json({ ok: true });
+});
+
+api.get('/troll-portrait/image', (req, res) => {
+  if (!fs.existsSync(PORTRAIT_PATH)) return res.status(404).end();
+  res.set('Content-Type', 'image/png');
+  fs.createReadStream(PORTRAIT_PATH).pipe(res);
 });
 
 api.get('/relationships', (req, res) => {
