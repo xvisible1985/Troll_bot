@@ -19,7 +19,13 @@ app.use(express.json());
 // here, and in every absolute path the frontend uses, is simpler and more
 // robust than trying to strip it in nginx (which would break as soon as any
 // asset/API path assumed root-relative resolution).
-app.use('/troll-admin', express.static(path.join(__dirname, 'public')));
+// no-cache: this panel's static files change often during active
+// development — without this, browsers/Telegram's WebView can keep serving
+// a stale cached app.js indefinitely, causing confusing "it's not doing
+// what I just changed" reports that are actually just an old cached copy.
+app.use('/troll-admin', express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res) => res.set('Cache-Control', 'no-cache'),
+}));
 
 const api = express.Router();
 api.use(requireAdmin);
