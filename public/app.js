@@ -130,6 +130,53 @@ async function loadSettings() {
   });
 }
 
+// Runs after loadSettings() and prepends its own card into #panel-settings,
+// rather than replacing the panel's innerHTML the way loadSettings does —
+// so it must always be called after loadSettings, never before.
+async function loadBotProfile() {
+  const profile = await apiFetch('/bot-profile');
+  const panel = document.getElementById('panel-settings');
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <p class="eyebrow">Профиль бота в Telegram</p>
+    <p style="font-size:12px; color:var(--text-muted); margin:-4px 0 12px;">Аватарку можно сменить только вручную через @BotFather (/setuserpic) — в Bot API такого метода нет.</p>
+    <div class="setting-row">
+      <div class="setting-head"><span class="setting-name">Имя</span></div>
+      <input type="text" id="profile-name" value="${profile.name || ''}" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-sunken); color:var(--text); font-size:13.5px;">
+    </div>
+    <div class="setting-row">
+      <div class="setting-head"><span class="setting-name">Краткое описание</span></div>
+      <textarea id="profile-short-desc" style="min-height:50px;">${profile.shortDescription || ''}</textarea>
+    </div>
+    <div class="setting-row">
+      <div class="setting-head"><span class="setting-name">Полное описание</span></div>
+      <textarea id="profile-desc">${profile.description || ''}</textarea>
+    </div>
+    <div class="say-actions"><button class="btn" id="profile-save">Сохранить</button></div>
+    <div id="profile-status" style="margin-top:8px; font-size:12.5px; color:var(--text-muted);"></div>
+  `;
+  panel.insertBefore(card, panel.firstChild);
+  document.getElementById('profile-save').addEventListener('click', async () => {
+    const status = document.getElementById('profile-status');
+    status.textContent = 'Сохранение…';
+    try {
+      await apiFetch('/bot-profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: document.getElementById('profile-name').value,
+          shortDescription: document.getElementById('profile-short-desc').value,
+          description: document.getElementById('profile-desc').value,
+        }),
+      });
+      status.textContent = 'Сохранено.';
+    } catch (err) {
+      status.textContent = 'Ошибка: ' + err.message;
+    }
+  });
+}
+
 async function loadPhrases() {
   const phrases = await apiFetch('/phrases');
   const byCategory = {};
@@ -295,6 +342,7 @@ async function init() {
   try {
     await loadStatus();
     await loadSettings();
+    await loadBotProfile();
     await loadPhrases();
     await loadRelationships();
     renderSay();

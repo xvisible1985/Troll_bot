@@ -95,6 +95,40 @@ api.post('/reset', (req, res) => {
   res.json({ ok: true });
 });
 
+// Bot self-profile (name/description shown in Telegram) — note there is no
+// Bot API method to change the bot's avatar; that stays BotFather-only
+// (/setuserpic), a hard platform limitation, not something skipped here.
+api.get('/bot-profile', async (req, res) => {
+  try {
+    const [nameResult, descResult, shortDescResult] = await Promise.all([
+      bot.getMyName(),
+      bot.getMyDescription(),
+      bot.getMyShortDescription(),
+    ]);
+    res.json({
+      name: nameResult.name,
+      description: descResult.description,
+      shortDescription: shortDescResult.short_description,
+    });
+  } catch (err) {
+    res.status(502).json({ error: 'telegram request failed', detail: err.message });
+  }
+});
+
+api.put('/bot-profile', async (req, res) => {
+  const { name, description, shortDescription } = req.body || {};
+  try {
+    const calls = [];
+    if (typeof name === 'string') calls.push(bot.setMyName({ name }));
+    if (typeof description === 'string') calls.push(bot.setMyDescription({ description }));
+    if (typeof shortDescription === 'string') calls.push(bot.setMyShortDescription({ short_description: shortDescription }));
+    await Promise.all(calls);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: 'telegram request failed', detail: err.message });
+  }
+});
+
 api.get('/relationships', (req, res) => {
   const rows = db.prepare('SELECT * FROM troll_relationships ORDER BY last_seen_at DESC').all();
   res.json(rows);
