@@ -455,16 +455,34 @@ async function loadStickers() {
 }
 
 async function init() {
+  // The very first call also acts as the auth probe (requireAdmin gates
+  // every /api/* route) — if it fails, treat it as "you don't have access"
+  // and stop entirely. Every tab after that loads independently: one tab's
+  // failure shows an error only in that tab's own panel, instead of the
+  // old behavior where any single failing tab (stickers, being last, was
+  // the common victim) wiped out every already-loaded tab's content.
   try {
     await loadStatus();
-    await loadSettings();
-    await loadBotProfile();
-    await loadPhrases();
-    await loadRelationships();
-    renderSay();
-    await loadStickers();
   } catch (err) {
     document.querySelector('main').innerHTML = `<div class="card">Ошибка доступа: ${err.message}</div>`;
+    return;
+  }
+  const tasks = [
+    { name: 'settings', panelId: 'panel-settings', fn: loadSettings },
+    { name: 'botProfile', panelId: 'panel-settings', fn: loadBotProfile },
+    { name: 'phrases', panelId: 'panel-phrases', fn: loadPhrases },
+    { name: 'relationships', panelId: 'panel-relationships', fn: loadRelationships },
+    { name: 'say', panelId: 'panel-say', fn: async () => renderSay() },
+    { name: 'stickers', panelId: 'panel-stickers', fn: loadStickers },
+  ];
+  for (const task of tasks) {
+    try {
+      await task.fn();
+    } catch (err) {
+      console.error(`Ошибка загрузки (${task.name}):`, err);
+      const panel = document.getElementById(task.panelId);
+      if (panel) panel.innerHTML = `<div class="card">Ошибка загрузки: ${err.message}</div>`;
+    }
   }
 }
 init();
