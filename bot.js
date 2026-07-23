@@ -87,9 +87,29 @@ db.exec(`
     is_asleep INTEGER NOT NULL DEFAULT 0,
     last_health_tick_at INTEGER,
     last_mischief_at INTEGER,
+    stage INTEGER NOT NULL DEFAULT 1,
     born_at INTEGER DEFAULT (strftime('%s','now'))
   )
 `);
+// Growth stage used to be derived live from feed_count; now it's an
+// admin-controlled value set from the panel (see /api/stage), independent
+// of feed_count. This migration only ever runs once, the moment the column
+// is first added to an already-deployed troll.db — it backfills the stage
+// an existing troll would have had under the old thresholds, so upgrading
+// doesn't visibly reset anyone's troll back to малыш. On every later
+// restart the ALTER throws immediately (column already exists) and this
+// backfill is skipped, so it never overwrites an admin's later manual choice.
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN stage INTEGER NOT NULL DEFAULT 1');
+  db.exec(`
+    UPDATE troll_state SET stage = CASE
+      WHEN feed_count >= 90 THEN 4
+      WHEN feed_count >= 50 THEN 3
+      WHEN feed_count >= 20 THEN 2
+      ELSE 1
+    END
+  `);
+} catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -330,13 +350,6 @@ function adjustAttitude(userId, delta) {
 // --- Growth ---
 const STAGE_NAMES = { 1: 'малыш', 2: 'подросток', 3: 'молодой', 4: 'взрослый' };
 
-function getStage(feedCount) {
-  if (feedCount >= 90) return 4;
-  if (feedCount >= 50) return 3;
-  if (feedCount >= 20) return 2;
-  return 1;
-}
-
 function getWeight(feedCount) {
   const capped = Math.min(feedCount, 90);
   return Math.round(30 + (capped / 90) * 370);
@@ -347,6 +360,14 @@ function moodWord(mood) {
   if (mood >= 40) return 'нормальный';
   if (mood >= 15) return 'грустный';
   return 'злой';
+}
+
+function attitudeWord(attitude) {
+  if (attitude >= 60) return 'обожает';
+  if (attitude >= 20) return 'любит';
+  if (attitude >= -19) return 'нейтрально';
+  if (attitude >= -59) return 'недолюбливает';
+  return 'ненавидит';
 }
 
 // --- Troll-speak transformer ---
@@ -446,12 +467,15 @@ bot.onText(/\/troll\b/, (msg) => {
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет. Позови его через /troll_here.');
   if (msg.chat.id !== state.chat_id) return;
   const displayWeight = Math.round(getWeight(state.feed_count) + (Math.random() * 6 - 3));
+  const relRow = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(msg.from.id);
+  const attitude = relRow ? relRow.attitude : 0;
   const lines = [
-    `Здоровье: ${state.health}/100`,
-    `Вес: ${displayWeight} кг`,
-    `Настроение: ${moodWord(state.mood)}`,
-    `Стадия: ${STAGE_NAMES[getStage(state.feed_count)]}`,
-    `Занятие: ${getActivityLine(state)}`,
+    `❤️ Здоровье: ${state.health}/100`,
+    `⚖️ Вес: ${displayWeight} кг`,
+    `😊 Настроение: ${moodWord(state.mood)}`,
+    `🌱 Стадия: ${STAGE_NAMES[state.stage]}`,
+    `🎭 Занятие: ${getActivityLine(state)}`,
+    `🤝 Отношение к тебе: ${attitudeWord(attitude)} (${attitude > 0 ? '+' : ''}${attitude})`,
   ];
   bot.sendMessage(msg.chat.id, lines.join('\n'), TROLL_ACTION_KEYBOARD);
 });
@@ -505,8 +529,6 @@ function performFeed(chatId, from) {
     return;
   }
   const newFeedCount = state.feed_count + 1;
-  const oldStage = getStage(state.feed_count);
-  const newStage = getStage(newFeedCount);
   const now = Math.floor(Date.now() / 1000);
   db.prepare(
     'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), last_fed_at = ? WHERE id = 1'
@@ -515,9 +537,6 @@ function performFeed(chatId, from) {
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_feed_delta'));
   sendCategoryReply(chatId, 'feed', 'Ням-ням, спасибо твоя!', actorName(from));
-  if (newStage > oldStage) {
-    bot.sendMessage(chatId, `Тролль подрос! Теперь твоя видеть: ${STAGE_NAMES[newStage]}!`);
-  }
 }
 
 bot.onText(/\/play\b/, (msg) => {
@@ -610,7 +629,7 @@ const TARGETED_ACTION_TIER_CATEGORIES = ['targeted_action_mild', 'targeted_actio
 
 function triggerMischief(chatId) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  const stage = getStage(state.feed_count);
+  const stage = state.stage;
   const tier = getMischiefTier(state.mood, getSettingNumber('naughtiness'), stage);
 
   if (recentMessages.length > 0 && Math.random() < 0.5) {
