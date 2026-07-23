@@ -4,7 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const {
   db, getSetting, setSetting, getAllSettings, DEFAULT_SETTINGS_KEYS,
-  STAGE_NAMES, getStage, getWeight, moodWord, getActivityLine, trollify,
+  STAGE_NAMES, getStage, getWeight, moodWord, getActivityLine, trollify, rollTrollTry,
 } = require('./admin-lib');
 const { bot, requireAdmin } = require('./admin-auth');
 
@@ -148,8 +148,14 @@ api.post('/say', upload.single('photo'), async (req, res) => {
   if (!state) return res.status(404).json({ error: 'no troll yet' });
   const text = (req.body && req.body.text) || '';
   if (!text) return res.status(400).json({ error: 'text required' });
-  const caption = trollify(text);
+  const tryMatch = text.match(/^\/try\s+([\s\S]+)/);
   try {
+    if (tryMatch) {
+      const sent = rollTrollTry(tryMatch[1]);
+      await bot.sendMessage(state.chat_id, sent);
+      return res.json({ ok: true, sent });
+    }
+    const caption = trollify(text);
     if (req.file) {
       await bot.sendPhoto(state.chat_id, req.file.buffer, { caption });
     } else {

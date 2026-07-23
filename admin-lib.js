@@ -111,6 +111,15 @@ function trollify(text) {
   return result;
 }
 
+// Duplicated from bot.js for the same reason as everything else in this
+// file — kept in sync by hand, not shared, since admin-server.js can't
+// require('./bot.js') (see the file-level comment near the top).
+function rollTrollTry(action) {
+  const roll = Math.floor(Math.random() * 101);
+  const outcome = roll < 50 ? '❌ неудачно' : '✅ удачно';
+  return `Тролль — ${action} ${outcome}: ${roll}/100`;
+}
+
 module.exports = {
   db,
   DEFAULT_SETTINGS_KEYS,
@@ -124,4 +133,5 @@ module.exports = {
   isSilenced,
   getActivityLine,
   trollify,
+  rollTrollTry,
 };

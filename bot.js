@@ -360,6 +360,16 @@ function trollify(text) {
   return result;
 }
 
+// Shared by triggerMischief's targeted-action branch and /troll_say's "/try"
+// prefix — the troll rolls its own dice rather than relying on another bot
+// to see and process a "/try" message (Telegram doesn't deliver messages
+// authored by one bot to another bot's updates).
+function rollTrollTry(action) {
+  const roll = Math.floor(Math.random() * 101);
+  const outcome = roll < 50 ? '❌ неудачно' : '✅ удачно';
+  return `Тролль — ${action} ${outcome}: ${roll}/100`;
+}
+
 // --- Public commands: summon and status ---
 bot.onText(/\/troll_here\b/, async (msg) => {
   if (!await isTelegramAdmin(msg)) return;
@@ -581,13 +591,7 @@ function triggerMischief(chatId) {
     } else {
       const template = pickPhrase(TARGETED_ACTION_TIER_CATEGORIES[effectiveTier], 'подшутить над {user}');
       const action = template.replace(/\{user\}/g, target);
-      // Rolls its own dice instead of sending "/try <action>" for the other
-      // bot to pick up — Telegram doesn't deliver messages authored by one
-      // bot to another bot's updates, so try-bot never saw these at all.
-      // Self-contained here, same "actor — action outcome: N/100" shape.
-      const roll = Math.floor(Math.random() * 101);
-      const outcome = roll < 50 ? '❌ неудачно' : '✅ удачно';
-      bot.sendMessage(chatId, `Тролль — ${action} ${outcome}: ${roll}/100`).catch(() => {});
+      bot.sendMessage(chatId, rollTrollTry(action)).catch(() => {});
     }
     return;
   }
@@ -709,7 +713,12 @@ bot.onText(/\/troll_say ([\s\S]+)/, (msg, match) => {
   if (!isAdminChat(msg)) return;
   const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет.');
-  const caption = trollify(match[1]);
+  const text = match[1];
+  const tryMatch = text.match(/^\/try\s+([\s\S]+)/);
+  if (tryMatch) {
+    return bot.sendMessage(state.chat_id, rollTrollTry(tryMatch[1]));
+  }
+  const caption = trollify(text);
   const photoSizes = msg.reply_to_message?.photo;
   if (photoSizes && photoSizes.length > 0) {
     const fileId = photoSizes[photoSizes.length - 1].file_id;
