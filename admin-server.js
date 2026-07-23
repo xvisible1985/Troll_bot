@@ -184,10 +184,15 @@ api.delete('/stickers/:id', (req, res) => {
 });
 
 api.get('/stickers/:id/image', async (req, res) => {
+  console.log(`sticker image request received for id=${req.params.id}`);
   const row = db.prepare('SELECT file_id FROM troll_stickers WHERE id = ?').get(req.params.id);
-  if (!row) return res.status(404).end();
+  if (!row) {
+    console.log(`sticker image: no row in db for id=${req.params.id}`);
+    return res.status(404).end();
+  }
   try {
     const { contentType, stream } = await fetchTelegramFile(row.file_id);
+    console.log(`sticker image proxy ok for id=${req.params.id}, contentType=${contentType}`);
     res.set('Content-Type', contentType);
     stream.pipe(res);
   } catch (err) {
