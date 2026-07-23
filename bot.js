@@ -122,6 +122,16 @@ db.exec(`
     last_seen_at INTEGER
   )
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS troll_stickers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id TEXT NOT NULL UNIQUE,
+    category TEXT,
+    has_own_text INTEGER NOT NULL DEFAULT 0,
+    emoji TEXT,
+    added_at INTEGER DEFAULT (strftime('%s','now'))
+  )
+`);
 
 const DEFAULT_SETTINGS = {
   sleep_start: '0',
@@ -263,6 +273,30 @@ function getPhrases(category) {
 function pickPhrase(category, fallback) {
   const phrases = getPhrases(category);
   return phrases.length > 0 ? pick(phrases) : fallback;
+}
+
+// Stickers are peers of a category's text phrases, not a separate system —
+// same category names, picked with a flat 50% chance whenever that category
+// would otherwise just send text. A sticker whose artwork already has the
+// joke baked in (has_own_text) is sent alone; otherwise the usual text
+// phrase still follows, prefixed with actorLabel exactly like it already
+// was for play/kick/feed (actorLabel is null for mischief, which has no
+// attribution to begin with).
+function pickSticker(category) {
+  const rows = db.prepare('SELECT file_id, has_own_text FROM troll_stickers WHERE category = ?').all(category);
+  if (rows.length === 0) return null;
+  const row = rows[Math.floor(Math.random() * rows.length)];
+  return { fileId: row.file_id, hasOwnText: !!row.has_own_text };
+}
+
+function sendCategoryReply(chatId, category, fallback, actorLabel) {
+  const sticker = Math.random() < 0.5 ? pickSticker(category) : null;
+  if (sticker) {
+    bot.sendSticker(chatId, sticker.fileId).catch(() => {});
+    if (sticker.hasOwnText) return;
+  }
+  const phrase = pickPhrase(category, fallback);
+  bot.sendMessage(chatId, actorLabel ? `${actorLabel} → ${phrase}` : phrase).catch(() => {});
 }
 
 function isSilenced(state) {
@@ -441,14 +475,14 @@ function performPlay(chatId, from) {
   if (!state || chatId !== state.chat_id) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    bot.sendMessage(chatId, `${actorName(from)} → ${pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!')}`);
+    sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
     return;
   }
   db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'play');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_play_delta'));
-  bot.sendMessage(chatId, `${actorName(from)} → ${pickPhrase('play', 'Моя рада играть с твоя!')}`);
+  sendCategoryReply(chatId, 'play', 'Моя рада играть с твоя!', actorName(from));
 }
 
 function performKick(chatId, from) {
@@ -459,7 +493,7 @@ function performKick(chatId, from) {
   logAction(from.id, from.username || from.first_name, 'kick');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
-  bot.sendMessage(chatId, `${actorName(from)} → ${pickPhrase('kick', 'Твоя злой! Моя обижаться!')}`);
+  sendCategoryReply(chatId, 'kick', 'Твоя злой! Моя обижаться!', actorName(from));
 }
 
 function performFeed(chatId, from) {
@@ -467,7 +501,7 @@ function performFeed(chatId, from) {
   if (!state || chatId !== state.chat_id) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    bot.sendMessage(chatId, `${actorName(from)} → ${pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!')}`);
+    sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
     return;
   }
   const newFeedCount = state.feed_count + 1;
@@ -480,7 +514,7 @@ function performFeed(chatId, from) {
   logAction(from.id, from.username || from.first_name, 'feed');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_feed_delta'));
-  bot.sendMessage(chatId, `${actorName(from)} → ${pickPhrase('feed', 'Ням-ням, спасибо твоя!')}`);
+  sendCategoryReply(chatId, 'feed', 'Ням-ням, спасибо твоя!', actorName(from));
   if (newStage > oldStage) {
     bot.sendMessage(chatId, `Тролль подрос! Теперь твоя видеть: ${STAGE_NAMES[newStage]}!`);
   }
@@ -586,8 +620,13 @@ function triggerMischief(chatId) {
     const maxTier = STAGE_MAX_MISCHIEF_TIER[stage] ?? 2;
     const effectiveTier = targetInfo.attitude <= escalationThreshold ? Math.min(maxTier, tier + 1) : tier;
     if (Math.random() < 0.5) {
-      const template = pickPhrase(TARGETED_PHRASE_TIER_CATEGORIES[effectiveTier], 'подмигнул {user}');
-      bot.sendMessage(chatId, `*${template.replace(/\{user\}/g, target)}*`).catch(() => {});
+      const phraseCategory = TARGETED_PHRASE_TIER_CATEGORIES[effectiveTier];
+      const sticker = Math.random() < 0.5 ? pickSticker(phraseCategory) : null;
+      if (sticker) bot.sendSticker(chatId, sticker.fileId).catch(() => {});
+      if (!sticker || !sticker.hasOwnText) {
+        const template = pickPhrase(phraseCategory, 'подмигнул {user}');
+        bot.sendMessage(chatId, `*${template.replace(/\{user\}/g, target)}*`).catch(() => {});
+      }
     } else {
       const template = pickPhrase(TARGETED_ACTION_TIER_CATEGORIES[effectiveTier], 'подшутить над {user}');
       const action = template.replace(/\{user\}/g, target);
@@ -595,13 +634,18 @@ function triggerMischief(chatId) {
     }
     return;
   }
-  const action = pickPhrase(MISCHIEF_TIER_CATEGORIES[tier], 'шалит тихонько под мостом');
-  let phrase = `*${action}*`;
-  if (Math.random() < 0.3) {
-    const rememberedUser = maybeRememberedUser();
-    if (rememberedUser) phrase += ` (твоя как ${rememberedUser}, твоя тоже моя помнить!)`;
+  const mischiefCategory = MISCHIEF_TIER_CATEGORIES[tier];
+  const sticker = Math.random() < 0.5 ? pickSticker(mischiefCategory) : null;
+  if (sticker) bot.sendSticker(chatId, sticker.fileId).catch(() => {});
+  if (!sticker || !sticker.hasOwnText) {
+    const action = pickPhrase(mischiefCategory, 'шалит тихонько под мостом');
+    let phrase = `*${action}*`;
+    if (Math.random() < 0.3) {
+      const rememberedUser = maybeRememberedUser();
+      if (rememberedUser) phrase += ` (твоя как ${rememberedUser}, твоя тоже моя помнить!)`;
+    }
+    bot.sendMessage(chatId, phrase).catch(() => {});
   }
-  bot.sendMessage(chatId, phrase).catch(() => {});
 }
 
 function isNightNow() {
