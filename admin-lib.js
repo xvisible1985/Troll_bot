@@ -38,13 +38,6 @@ function getAllSettings() {
 // code with a new admin tool.) ---
 const STAGE_NAMES = { 1: 'малыш', 2: 'подросток', 3: 'молодой', 4: 'взрослый' };
 
-function getStage(feedCount) {
-  if (feedCount >= 90) return 4;
-  if (feedCount >= 50) return 3;
-  if (feedCount >= 20) return 2;
-  return 1;
-}
-
 function getWeight(feedCount) {
   const capped = Math.min(feedCount, 90);
   return Math.round(30 + (capped / 90) * 370);
@@ -127,7 +120,6 @@ module.exports = {
   setSetting,
   getAllSettings,
   STAGE_NAMES,
-  getStage,
   getWeight,
   moodWord,
   isSilenced,

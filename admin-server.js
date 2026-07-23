@@ -4,7 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const {
   db, getSetting, setSetting, getAllSettings, DEFAULT_SETTINGS_KEYS,
-  STAGE_NAMES, getStage, getWeight, moodWord, getActivityLine, trollify, rollTrollTry,
+  STAGE_NAMES, getWeight, moodWord, getActivityLine, trollify, rollTrollTry,
 } = require('./admin-lib');
 const { bot, requireAdmin, fetchTelegramFile } = require('./admin-auth');
 
@@ -33,11 +33,21 @@ api.get('/status', (req, res) => {
     mood: state.mood,
     moodWord: moodWord(state.mood),
     weight: getWeight(state.feed_count),
-    stage: getStage(state.feed_count),
-    stageName: STAGE_NAMES[getStage(state.feed_count)],
+    stage: state.stage,
+    stageName: STAGE_NAMES[state.stage],
     activity: getActivityLine(state),
     paused: getSetting('paused') === '1',
   });
+});
+
+// Stage is admin-controlled (set via this endpoint), not derived from
+// feed_count — see the migration note in bot.js's schema section.
+api.put('/stage', (req, res) => {
+  const stageNum = Number(req.body && req.body.stage);
+  if (![1, 2, 3, 4].includes(stageNum)) return res.status(400).json({ error: 'stage must be 1-4' });
+  const info = db.prepare('UPDATE troll_state SET stage = ? WHERE id = 1').run(stageNum);
+  if (info.changes === 0) return res.status(404).json({ error: 'no troll yet' });
+  res.json({ ok: true, stage: stageNum, stageName: STAGE_NAMES[stageNum] });
 });
 
 api.get('/settings', (req, res) => {
@@ -199,13 +209,14 @@ api.post('/say', upload.single('photo'), async (req, res) => {
   const text = (req.body && req.body.text) || '';
   if (!text) return res.status(400).json({ error: 'text required' });
   const tryMatch = text.match(/^\/try\s+([\s\S]+)/);
+  const applyTrollify = req.body && (req.body.applyTrollify === '1' || req.body.applyTrollify === true);
   try {
     if (tryMatch) {
       const sent = rollTrollTry(tryMatch[1]);
       await bot.sendMessage(state.chat_id, sent);
       return res.json({ ok: true, sent });
     }
-    const caption = trollify(text);
+    const caption = applyTrollify ? trollify(text) : text;
     if (req.file) {
       await bot.sendPhoto(state.chat_id, req.file.buffer, { caption });
     } else {
