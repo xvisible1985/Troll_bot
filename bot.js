@@ -88,6 +88,8 @@ db.exec(`
     last_health_tick_at INTEGER,
     last_mischief_at INTEGER,
     stage INTEGER NOT NULL DEFAULT 1,
+    satiety INTEGER NOT NULL DEFAULT 100,
+    last_hunger_action_at INTEGER,
     born_at INTEGER DEFAULT (strftime('%s','now'))
   )
 `);
@@ -109,6 +111,16 @@ try {
       ELSE 1
     END
   `);
+} catch {}
+// SQLite backfills NOT NULL DEFAULT values for existing rows on ADD COLUMN,
+// so an already-deployed troll simply starts at satiety=100 — no backfill
+// query needed like stage's above (which derived its initial value from
+// feed_count instead of a flat default).
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN satiety INTEGER NOT NULL DEFAULT 100');
+} catch {}
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN last_hunger_action_at INTEGER');
 } catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_actions (
@@ -167,6 +179,10 @@ const DEFAULT_SETTINGS = {
   attitude_feed_delta: '8',
   attitude_kick_delta: '-15',
   attitude_escalation_threshold: '-30',
+  satiety_decay_per_hour: '4',
+  satiety_feed_gain: '35',
+  hunger_action_interval_minutes: '30',
+  attitude_feed_reject_delta: '-10',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -246,6 +262,21 @@ const PHRASE_SEED = {
     'Ррррр! Кто будить моя?! Моя спать хотеть!',
     'Твоя разбудить моя! Моя очень злой сейчас!',
     'Не мешать моя спать! Уходи!',
+  ],
+  feed_reject: [
+    'Твоя что, моя не видеть?! Моя сытый совсем! *кидает еда в твоя*',
+    'Моя не хотеть больше кушать! *швыряет еда в твоя лицо*',
+    'Убирать эта еда! Моя и так полный! *кидает в твоя*',
+  ],
+  hunger_beg: [
+    'Моя кушать хотеть! Кто-нибудь покормить моя, а?',
+    'Моя живот урчать совсем... дать моя поесть!',
+    'Твоя есть еда? Моя очень-очень кушать хотеть!',
+  ],
+  hunger_grab_action: [
+    'вцепиться в сиську {user} от голод',
+    'впиться в грудь {user}, требуя еда',
+    'вцепиться в {user}, искать еда',
   ],
   activity_awake: [
     'бродит под мостом',
@@ -362,6 +393,13 @@ function moodWord(mood) {
   return 'злой';
 }
 
+function satietyWord(satiety) {
+  if (satiety >= 90) return 'объевшийся';
+  if (satiety >= 50) return 'сытый';
+  if (satiety >= 30) return 'голодный';
+  return 'очень голодный';
+}
+
 function attitudeWord(attitude) {
   if (attitude >= 60) return 'обожает';
   if (attitude >= 20) return 'любит';
@@ -471,6 +509,7 @@ bot.onText(/\/troll\b/, (msg) => {
   const attitude = relRow ? relRow.attitude : 0;
   const lines = [
     `❤️ Здоровье: ${state.health}/100`,
+    `🍖 Сытость: ${state.satiety}/100 (${satietyWord(state.satiety)})`,
     `⚖️ Вес: ${displayWeight} кг`,
     `😊 Настроение: ${moodWord(state.mood)}`,
     `🌱 Стадия: ${STAGE_NAMES[state.stage]}`,
@@ -528,11 +567,22 @@ function performFeed(chatId, from) {
     sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
     return;
   }
+  // Already full (satiety 90-100): feeding is rejected outright — the troll
+  // throws the food back instead of eating it, and it costs the feeder some
+  // attitude for not noticing. feed_count/health/mood/satiety stay untouched.
+  if (state.satiety >= 90) {
+    logAction(from.id, from.username || from.first_name, 'feed_reject');
+    noticeUser(from.id, from.username, from.first_name);
+    adjustAttitude(from.id, getSettingNumber('attitude_feed_reject_delta'));
+    sendCategoryReply(chatId, 'feed_reject', 'Моя сытый! *кидает еда в твоя*', actorName(from));
+    return;
+  }
   const newFeedCount = state.feed_count + 1;
   const now = Math.floor(Date.now() / 1000);
+  const satietyGain = getSettingNumber('satiety_feed_gain');
   db.prepare(
-    'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), last_fed_at = ? WHERE id = 1'
-  ).run(newFeedCount, now);
+    'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), satiety = MIN(100, satiety + ?), last_fed_at = ? WHERE id = 1'
+  ).run(newFeedCount, satietyGain, now);
   logAction(from.id, from.username || from.first_name, 'feed');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_feed_delta'));
@@ -667,6 +717,23 @@ function triggerMischief(chatId) {
   }
 }
 
+function triggerBegging(chatId) {
+  sendCategoryReply(chatId, 'hunger_beg', 'Моя кушать хотеть! Кто-нибудь покормить моя?!', null);
+}
+
+// Reuses pickMischiefTarget/getMentionName/rollTrollTry — same weighted
+// "recent participant, more likely if disliked" targeting as regular
+// targeted mischief. Falls back to begging if no one's spoken recently to
+// grab at.
+function triggerHungryGrab(chatId) {
+  if (recentMessages.length === 0) return triggerBegging(chatId);
+  const targetInfo = pickMischiefTarget();
+  const target = getMentionName(targetInfo.entry);
+  const template = pickPhrase('hunger_grab_action', 'вцепиться в сиську {user} от голод');
+  const action = template.replace(/\{user\}/g, target);
+  bot.sendMessage(chatId, rollTrollTry(action)).catch(() => {});
+}
+
 function isNightNow() {
   const hour = new Date().getHours();
   const start = getSettingNumber('sleep_start');
@@ -699,11 +766,12 @@ function backgroundTick() {
     const neglectHours = getSettingNumber('neglect_threshold_hours');
     const decay = getSettingNumber('health_decay_per_hour');
     const regen = getSettingNumber('health_regen_per_hour');
+    const satietyDecay = getSettingNumber('satiety_decay_per_hour');
     const hoursSinceFed = state.last_fed_at ? (now - state.last_fed_at) / 3600 : Infinity;
     if (hoursSinceFed > neglectHours) {
-      db.prepare('UPDATE troll_state SET health = MAX(0, health - ?), last_health_tick_at = ? WHERE id = 1').run(decay, now);
+      db.prepare('UPDATE troll_state SET health = MAX(0, health - ?), satiety = MAX(0, satiety - ?), last_health_tick_at = ? WHERE id = 1').run(decay, satietyDecay, now);
     } else {
-      db.prepare('UPDATE troll_state SET health = MIN(100, health + ?), last_health_tick_at = ? WHERE id = 1').run(regen, now);
+      db.prepare('UPDATE troll_state SET health = MIN(100, health + ?), satiety = MAX(0, satiety - ?), last_health_tick_at = ? WHERE id = 1').run(regen, satietyDecay, now);
     }
   }
 
@@ -712,6 +780,23 @@ function backgroundTick() {
     if (!state.last_mischief_at || now - state.last_mischief_at >= intervalSeconds) {
       triggerMischief(state.chat_id);
       db.prepare('UPDATE troll_state SET last_mischief_at = ? WHERE id = 1').run(now);
+    }
+
+    // Hunger-driven autonomous behavior: below 30 the troll gets aggressive
+    // and tries to grab a random recent chat participant (rolled like any
+    // other targeted mischief); between 30 and 49 it just begs the chat at
+    // large. Both share one cooldown so they never fire back-to-back with
+    // mischief spam — only the more severe branch runs when satiety is
+    // low enough to qualify for both.
+    const hungerIntervalSeconds = getSettingNumber('hunger_action_interval_minutes') * 60;
+    if (!state.last_hunger_action_at || now - state.last_hunger_action_at >= hungerIntervalSeconds) {
+      if (state.satiety < 30) {
+        triggerHungryGrab(state.chat_id);
+        db.prepare('UPDATE troll_state SET last_hunger_action_at = ? WHERE id = 1').run(now);
+      } else if (state.satiety < 50) {
+        triggerBegging(state.chat_id);
+        db.prepare('UPDATE troll_state SET last_hunger_action_at = ? WHERE id = 1').run(now);
+      }
     }
   }
 }
@@ -860,9 +945,9 @@ bot.onText(/\/troll_phrase_edit (\d+) ([\s\S]+)/, (msg, match) => {
 // --- Help ---
 const TROLL_HELP_PUBLIC = [
   '🧌 Тролль под мостом:',
-  '/troll — статус тролля (здоровье, вес, настроение, стадия)',
+  '/troll — статус тролля (здоровье, сытость, вес, настроение, стадия)',
   '/play — поиграть с тролем (+настроение)',
-  '/feed — покормить тролля (+здоровье, +настроение, растёт)',
+  '/feed — покормить тролля (+здоровье, +сытость, +настроение, растёт; если тролль уже сыт — кинет еду обратно)',
   '/kick — пнуть тролля (-настроение, замолкает на час)',
 ].join('\n');
 

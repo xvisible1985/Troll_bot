@@ -9,6 +9,8 @@ const DEFAULT_SETTINGS_KEYS = [
   'mischief_message_trigger', 'health_decay_per_hour', 'health_regen_per_hour',
   'neglect_threshold_hours', 'paused', 'attitude_play_delta', 'attitude_feed_delta',
   'attitude_kick_delta', 'attitude_escalation_threshold',
+  'satiety_decay_per_hour', 'satiety_feed_gain', 'hunger_action_interval_minutes',
+  'attitude_feed_reject_delta',
 ];
 
 function getSetting(key) {
@@ -48,6 +50,13 @@ function moodWord(mood) {
   if (mood >= 40) return 'нормальный';
   if (mood >= 15) return 'грустный';
   return 'злой';
+}
+
+function satietyWord(satiety) {
+  if (satiety >= 90) return 'объевшийся';
+  if (satiety >= 50) return 'сытый';
+  if (satiety >= 30) return 'голодный';
+  return 'очень голодный';
 }
 
 function isSilenced(state) {
@@ -122,6 +131,7 @@ module.exports = {
   STAGE_NAMES,
   getWeight,
   moodWord,
+  satietyWord,
   isSilenced,
   getActivityLine,
   trollify,

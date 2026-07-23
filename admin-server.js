@@ -4,7 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const {
   db, getSetting, setSetting, getAllSettings, DEFAULT_SETTINGS_KEYS,
-  STAGE_NAMES, getWeight, moodWord, getActivityLine, trollify, rollTrollTry,
+  STAGE_NAMES, getWeight, moodWord, satietyWord, getActivityLine, trollify, rollTrollTry,
 } = require('./admin-lib');
 const { bot, requireAdmin, fetchTelegramFile } = require('./admin-auth');
 
@@ -38,6 +38,8 @@ api.get('/status', (req, res) => {
     health: state.health,
     mood: state.mood,
     moodWord: moodWord(state.mood),
+    satiety: state.satiety,
+    satietyWord: satietyWord(state.satiety),
     weight: getWeight(state.feed_count),
     stage: state.stage,
     stageName: STAGE_NAMES[state.stage],

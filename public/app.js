@@ -43,6 +43,10 @@ const SETTING_LABELS = {
   attitude_feed_delta: 'Отношение: /feed',
   attitude_kick_delta: 'Отношение: /kick',
   attitude_escalation_threshold: 'Порог озлобления',
+  satiety_decay_per_hour: 'Упадок сытости/ч',
+  satiety_feed_gain: 'Сытость от кормления',
+  hunger_action_interval_minutes: 'Интервал голодного действия, мин',
+  attitude_feed_reject_delta: 'Отношение: кормление сытого',
 };
 const SETTING_RANGES = {
   naughtiness: [1, 10, 1],
@@ -57,6 +61,10 @@ const SETTING_RANGES = {
   attitude_feed_delta: [0, 20, 1],
   attitude_kick_delta: [-40, 0, 1],
   attitude_escalation_threshold: [-100, 0, 5],
+  satiety_decay_per_hour: [0, 15, 1],
+  satiety_feed_gain: [5, 50, 5],
+  hunger_action_interval_minutes: [5, 120, 5],
+  attitude_feed_reject_delta: [-40, 0, 1],
 };
 
 async function loadStatus() {
@@ -73,6 +81,7 @@ async function loadStatus() {
   sub.textContent = data.stageName;
   chips.innerHTML = `
     <div class="chip"><span class="dot"></span>здоровье <b class="mono">${data.health}</b></div>
+    <div class="chip${data.satiety < 50 ? ' warn' : ''}"><span class="dot"></span>сытость <b class="mono">${data.satiety}</b></div>
     <div class="chip"><span class="dot"></span>настроение <b>${data.moodWord}</b></div>
     ${data.paused ? '<div class="chip warn"><span class="dot"></span>шалости на паузе</div>' : ''}
   `;
@@ -82,6 +91,9 @@ async function loadStatus() {
       <div class="stat-grid">
         <div class="stat"><div class="label">❤️ Здоровье</div><div class="value mono">${data.health}/100</div>
           <div class="bar-track"><div class="bar-fill" style="width:${data.health}%"></div></div></div>
+        <div class="stat"><div class="label">🍖 Сытость</div><div class="value mono">${data.satiety}/100</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${data.satiety}%"></div></div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">${data.satietyWord}</div></div>
         <div class="stat"><div class="label">⚖️ Вес</div><div class="value mono">${data.weight} кг</div></div>
         <div class="stat"><div class="label">😊 Настроение</div><div class="value">${data.moodWord}</div></div>
         <div class="stat">
