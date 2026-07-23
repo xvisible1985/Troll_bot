@@ -83,6 +83,11 @@ async function requireAdmin(req, res, next) {
 function fetchTelegramFile(fileId) {
   return bot.getFileLink(fileId).then((fileLink) => new Promise((resolve, reject) => {
     https.get(fileLink, { agent }, (fileRes) => {
+      if (fileRes.statusCode !== 200) {
+        reject(new Error(`Telegram file server responded ${fileRes.statusCode} for ${fileLink}`));
+        fileRes.resume();
+        return;
+      }
       resolve({ contentType: fileRes.headers['content-type'] || 'application/octet-stream', stream: fileRes });
     }).on('error', reject);
   }));

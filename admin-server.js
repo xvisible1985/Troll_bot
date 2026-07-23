@@ -191,6 +191,7 @@ api.get('/stickers/:id/image', async (req, res) => {
     res.set('Content-Type', contentType);
     stream.pipe(res);
   } catch (err) {
+    console.error(`sticker image proxy failed for id=${req.params.id}:`, err.message);
     res.status(502).end();
   }
 });
