@@ -392,16 +392,18 @@ async function loadStickers() {
   `;
   const categoryBlocks = Object.keys(byCategory).map((category) => {
     const items = byCategory[category].map((s) => `
-      <div class="phrase-item" data-id="${s.id}" style="align-items:center;">
-        <img src="/troll-admin/api/stickers/${s.id}/image" style="width:48px; height:48px; object-fit:contain; border-radius:8px; background:var(--bg-sunken);" alt="${s.emoji || ''}">
-        <select class="sticker-category" style="flex:1; padding:6px 8px; border-radius:8px; border:1px solid var(--border); background:var(--bg-sunken); color:var(--text); font-size:12.5px;">
-          <option value="">— без категории —</option>
-          ${STICKER_CATEGORIES.map((c) => `<option value="${c}" ${c === s.category ? 'selected' : ''}>${c}</option>`).join('')}
-        </select>
-        <label style="font-size:11.5px; display:flex; align-items:center; gap:4px; white-space:nowrap;">
-          <input type="checkbox" class="sticker-own-text" ${s.has_own_text ? 'checked' : ''}> текст
-        </label>
-        <button class="icon-btn sticker-del">✕</button>
+      <div class="sticker-item" data-id="${s.id}">
+        <img src="/troll-admin/api/stickers/${s.id}/image" class="sticker-preview" alt="${s.emoji || ''}">
+        <div class="sticker-controls">
+          <select class="sticker-category">
+            <option value="">— без категории —</option>
+            ${STICKER_CATEGORIES.map((c) => `<option value="${c}" ${c === s.category ? 'selected' : ''}>${c}</option>`).join('')}
+          </select>
+          <div class="sticker-own-text-row">
+            <label><input type="checkbox" class="sticker-own-text" ${s.has_own_text ? 'checked' : ''}> есть свой текст</label>
+            <button class="icon-btn sticker-del">✕ удалить</button>
+          </div>
+        </div>
       </div>
     `).join('');
     return `
@@ -431,7 +433,7 @@ async function loadStickers() {
     }
   });
 
-  panel.querySelectorAll('.phrase-item').forEach((item) => {
+  panel.querySelectorAll('.sticker-item').forEach((item) => {
     const id = item.dataset.id;
     item.querySelector('.sticker-category').addEventListener('change', async (e) => {
       await apiFetch('/stickers/' + id, {
