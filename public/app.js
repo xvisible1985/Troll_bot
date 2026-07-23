@@ -338,6 +338,97 @@ function renderSay() {
   });
 }
 
+const STICKER_CATEGORIES = [
+  'play', 'kick', 'feed',
+  'mischief_mild', 'mischief_medium', 'mischief_mean',
+  'targeted_phrase_mild', 'targeted_phrase_medium', 'targeted_phrase_mean',
+  'woken_angry',
+];
+
+async function loadStickers() {
+  const stickers = await apiFetch('/stickers');
+  const panel = document.getElementById('panel-stickers');
+  const byCategory = { '(без категории)': [] };
+  for (const s of stickers) {
+    const key = s.category || '(без категории)';
+    (byCategory[key] = byCategory[key] || []).push(s);
+  }
+  const importCard = `
+    <div class="card">
+      <p class="eyebrow">Импорт пака</p>
+      <p style="font-size:12px; color:var(--text-muted); margin:-4px 0 12px;">Короткое имя из ссылки вида t.me/addstickers/&lt;имя&gt;</p>
+      <div class="add-phrase-row">
+        <input type="text" id="sticker-set-name" placeholder="Имя пака">
+        <button class="btn" id="sticker-import-btn">Импорт</button>
+      </div>
+      <div id="sticker-import-status" style="margin-top:8px; font-size:12.5px; color:var(--text-muted);"></div>
+    </div>
+  `;
+  const categoryBlocks = Object.keys(byCategory).map((category) => {
+    const items = byCategory[category].map((s) => `
+      <div class="phrase-item" data-id="${s.id}" style="align-items:center;">
+        <img src="/troll-admin/api/stickers/${s.id}/image" style="width:48px; height:48px; object-fit:contain; border-radius:8px; background:var(--bg-sunken);" alt="${s.emoji || ''}">
+        <select class="sticker-category" style="flex:1; padding:6px 8px; border-radius:8px; border:1px solid var(--border); background:var(--bg-sunken); color:var(--text); font-size:12.5px;">
+          <option value="">— без категории —</option>
+          ${STICKER_CATEGORIES.map((c) => `<option value="${c}" ${c === s.category ? 'selected' : ''}>${c}</option>`).join('')}
+        </select>
+        <label style="font-size:11.5px; display:flex; align-items:center; gap:4px; white-space:nowrap;">
+          <input type="checkbox" class="sticker-own-text" ${s.has_own_text ? 'checked' : ''}> текст
+        </label>
+        <button class="icon-btn sticker-del">✕</button>
+      </div>
+    `).join('');
+    return `
+      <div class="category open">
+        <div class="category-head"><span class="name">${category}</span><span class="count">${byCategory[category].length}</span></div>
+        <div class="category-body">${items}</div>
+      </div>
+    `;
+  }).join('');
+  panel.innerHTML = importCard + `<div class="card">${categoryBlocks}</div>`;
+
+  document.getElementById('sticker-import-btn').addEventListener('click', async () => {
+    const setName = document.getElementById('sticker-set-name').value.trim();
+    const status = document.getElementById('sticker-import-status');
+    if (!setName) return;
+    status.textContent = 'Импортирую…';
+    try {
+      const result = await apiFetch('/stickers/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ setName }),
+      });
+      status.textContent = `Добавлено ${result.added} из ${result.total}.`;
+      loadStickers();
+    } catch (err) {
+      status.textContent = 'Ошибка: ' + err.message;
+    }
+  });
+
+  panel.querySelectorAll('.phrase-item').forEach((item) => {
+    const id = item.dataset.id;
+    item.querySelector('.sticker-category').addEventListener('change', async (e) => {
+      await apiFetch('/stickers/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: e.target.value || null }),
+      });
+      loadStickers();
+    });
+    item.querySelector('.sticker-own-text').addEventListener('change', async (e) => {
+      await apiFetch('/stickers/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hasOwnText: e.target.checked }),
+      });
+    });
+    item.querySelector('.sticker-del').addEventListener('click', async () => {
+      await apiFetch('/stickers/' + id, { method: 'DELETE' });
+      loadStickers();
+    });
+  });
+}
+
 async function init() {
   try {
     await loadStatus();
@@ -346,6 +437,7 @@ async function init() {
     await loadPhrases();
     await loadRelationships();
     renderSay();
+    await loadStickers();
   } catch (err) {
     document.querySelector('main').innerHTML = `<div class="card">Ошибка доступа: ${err.message}</div>`;
   }
