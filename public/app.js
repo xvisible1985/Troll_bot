@@ -393,7 +393,7 @@ async function loadStickers() {
   const categoryBlocks = Object.keys(byCategory).map((category) => {
     const items = byCategory[category].map((s) => `
       <div class="sticker-item" data-id="${s.id}">
-        <img src="/troll-admin/api/stickers/${s.id}/image" class="sticker-preview" alt="${s.emoji || ''}">
+        <img data-sticker-id="${s.id}" class="sticker-preview" alt="${s.emoji || ''}">
         <div class="sticker-controls">
           <select class="sticker-category">
             <option value="">— без категории —</option>
@@ -454,6 +454,24 @@ async function loadStickers() {
       await apiFetch('/stickers/' + id, { method: 'DELETE' });
       loadStickers();
     });
+  });
+
+  // Plain <img src> can't carry the X-Telegram-Init-Data header the API
+  // requires, so every preview would 401 before ever reaching the proxy
+  // route. Fetch each image with the header instead and hand the browser
+  // a blob: URL.
+  panel.querySelectorAll('.sticker-preview').forEach(async (img) => {
+    const id = img.dataset.stickerId;
+    try {
+      const res = await fetch(`/troll-admin/api/stickers/${id}/image`, {
+        headers: { 'X-Telegram-Init-Data': initData },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      img.src = URL.createObjectURL(blob);
+    } catch (err) {
+      console.error(`sticker preview failed for id=${id}:`, err);
+    }
   });
 }
 
