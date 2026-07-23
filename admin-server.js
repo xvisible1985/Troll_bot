@@ -6,7 +6,7 @@ const {
   db, getSetting, setSetting, getAllSettings, DEFAULT_SETTINGS_KEYS,
   STAGE_NAMES, getStage, getWeight, moodWord, getActivityLine, trollify, rollTrollTry,
 } = require('./admin-lib');
-const { bot, requireAdmin } = require('./admin-auth');
+const { bot, requireAdmin, fetchTelegramFile } = require('./admin-auth');
 
 const PORT = 4100;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -126,6 +126,56 @@ api.put('/bot-profile', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: 'telegram request failed', detail: err.message });
+  }
+});
+
+api.get('/stickers', (req, res) => {
+  const rows = db.prepare('SELECT id, category, has_own_text, emoji FROM troll_stickers ORDER BY category, id').all();
+  res.json(rows);
+});
+
+api.post('/stickers/import', async (req, res) => {
+  const { setName } = req.body || {};
+  if (!setName) return res.status(400).json({ error: 'setName required' });
+  try {
+    const set = await bot.getStickerSet(setName);
+    const insert = db.prepare('INSERT OR IGNORE INTO troll_stickers (file_id, emoji) VALUES (?, ?)');
+    let added = 0;
+    for (const sticker of set.stickers) {
+      const info = insert.run(sticker.file_id, sticker.emoji || null);
+      if (info.changes > 0) added += 1;
+    }
+    res.json({ total: set.stickers.length, added });
+  } catch (err) {
+    res.status(502).json({ error: 'telegram request failed', detail: err.message });
+  }
+});
+
+api.put('/stickers/:id', (req, res) => {
+  const current = db.prepare('SELECT category, has_own_text FROM troll_stickers WHERE id = ?').get(req.params.id);
+  if (!current) return res.status(404).json({ error: 'not found' });
+  const { category, hasOwnText } = req.body || {};
+  const newCategory = category !== undefined ? category : current.category;
+  const newHasOwnText = hasOwnText !== undefined ? (hasOwnText ? 1 : 0) : current.has_own_text;
+  db.prepare('UPDATE troll_stickers SET category = ?, has_own_text = ? WHERE id = ?').run(newCategory, newHasOwnText, req.params.id);
+  res.json({ ok: true, category: newCategory, hasOwnText: !!newHasOwnText });
+});
+
+api.delete('/stickers/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM troll_stickers WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true });
+});
+
+api.get('/stickers/:id/image', async (req, res) => {
+  const row = db.prepare('SELECT file_id FROM troll_stickers WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).end();
+  try {
+    const { contentType, stream } = await fetchTelegramFile(row.file_id);
+    res.set('Content-Type', contentType);
+    stream.pipe(res);
+  } catch (err) {
+    res.status(502).end();
   }
 });
 
