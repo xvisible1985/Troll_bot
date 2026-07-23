@@ -181,6 +181,7 @@ const DEFAULT_SETTINGS = {
   attitude_escalation_threshold: '-30',
   satiety_decay_per_hour: '4',
   satiety_feed_gain: '35',
+  satiety_suckle_gain: '20',
   hunger_action_interval_minutes: '30',
   attitude_feed_reject_delta: '-10',
 };
@@ -277,6 +278,11 @@ const PHRASE_SEED = {
     'вцепиться в сиську {user} от голод',
     'впиться в грудь {user}, требуя еда',
     'вцепиться в {user}, искать еда',
+  ],
+  hunger_suckle_action: [
+    'пососать молоко у {user}',
+    'высосать молоко из {user}',
+    'напиться молоко у {user}',
   ],
   activity_awake: [
     'бродит под мостом',
@@ -457,10 +463,15 @@ function trollify(text) {
 // prefix — the troll rolls its own dice rather than relying on another bot
 // to see and process a "/try" message (Telegram doesn't deliver messages
 // authored by one bot to another bot's updates).
-function rollTrollTry(action) {
+function rollTrollTryResult(action) {
   const roll = Math.floor(Math.random() * 101);
-  const outcome = roll < 50 ? '❌ неудачно' : '✅ удачно';
-  return `Тролль — ${action} ${outcome}: ${roll}/100`;
+  const success = roll >= 50;
+  const outcome = success ? '✅ удачно' : '❌ неудачно';
+  return { success, text: `Тролль — ${action} ${outcome}: ${roll}/100` };
+}
+
+function rollTrollTry(action) {
+  return rollTrollTryResult(action).text;
 }
 
 // --- Public commands: summon and status ---
@@ -721,17 +732,31 @@ function triggerBegging(chatId) {
   sendCategoryReply(chatId, 'hunger_beg', 'Моя кушать хотеть! Кто-нибудь покормить моя?!', null);
 }
 
-// Reuses pickMischiefTarget/getMentionName/rollTrollTry — same weighted
-// "recent participant, more likely if disliked" targeting as regular
-// targeted mischief. Falls back to begging if no one's spoken recently to
-// grab at.
+// Reuses pickMischiefTarget/getMentionName — same weighted "recent
+// participant, more likely if disliked" targeting as regular targeted
+// mischief. Falls back to begging if no one's spoken recently to grab at.
+// Two chained rolls: grabbing on, then (only if that succeeds) actually
+// suckling — only the second roll's success restores satiety, so a failed
+// grab never pays off.
 function triggerHungryGrab(chatId) {
   if (recentMessages.length === 0) return triggerBegging(chatId);
   const targetInfo = pickMischiefTarget();
   const target = getMentionName(targetInfo.entry);
-  const template = pickPhrase('hunger_grab_action', 'вцепиться в сиську {user} от голод');
-  const action = template.replace(/\{user\}/g, target);
-  bot.sendMessage(chatId, rollTrollTry(action)).catch(() => {});
+
+  const grabTemplate = pickPhrase('hunger_grab_action', 'вцепиться в сиську {user} от голод');
+  const grabAction = grabTemplate.replace(/\{user\}/g, target);
+  const grabRoll = rollTrollTryResult(grabAction);
+  bot.sendMessage(chatId, grabRoll.text).catch(() => {});
+  if (!grabRoll.success) return;
+
+  const suckleTemplate = pickPhrase('hunger_suckle_action', 'пососать молоко у {user}');
+  const suckleAction = suckleTemplate.replace(/\{user\}/g, target);
+  const suckleRoll = rollTrollTryResult(suckleAction);
+  bot.sendMessage(chatId, suckleRoll.text).catch(() => {});
+  if (suckleRoll.success) {
+    const satietyGain = getSettingNumber('satiety_suckle_gain');
+    db.prepare('UPDATE troll_state SET satiety = MIN(100, satiety + ?) WHERE id = 1').run(satietyGain);
+  }
 }
 
 function isNightNow() {

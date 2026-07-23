@@ -45,6 +45,7 @@ const SETTING_LABELS = {
   attitude_escalation_threshold: 'Порог озлобления',
   satiety_decay_per_hour: 'Упадок сытости/ч',
   satiety_feed_gain: 'Сытость от кормления',
+  satiety_suckle_gain: 'Сытость от сосания молока',
   hunger_action_interval_minutes: 'Интервал голодного действия, мин',
   attitude_feed_reject_delta: 'Отношение: кормление сытого',
 };
@@ -63,6 +64,7 @@ const SETTING_RANGES = {
   attitude_escalation_threshold: [-100, 0, 5],
   satiety_decay_per_hour: [0, 15, 1],
   satiety_feed_gain: [5, 50, 5],
+  satiety_suckle_gain: [5, 50, 5],
   hunger_action_interval_minutes: [5, 120, 5],
   attitude_feed_reject_delta: [-40, 0, 1],
 };
