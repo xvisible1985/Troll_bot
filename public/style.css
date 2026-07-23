@@ -115,7 +115,10 @@ main { flex: 1; padding: 16px 16px 40px; }
 .setting-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 8px; }
 .setting-name { font-size: 13.5px; font-weight: 600; }
 .setting-value { font-size: 13px; color: var(--accent-deep); font-weight: 700; flex-shrink: 0; }
-input[type="range"] { width: 100%; accent-color: var(--accent); height: 20px; }
+/* touch-action: pan-y lets a vertical swipe starting on the slider still
+   scroll the page — without it, touch devices capture any touch on the
+   track as a drag gesture and block page scrolling entirely. */
+input[type="range"] { width: 100%; accent-color: var(--accent); height: 20px; touch-action: pan-y; }
 
 .category { border-bottom: 1px solid var(--border); }
 .category:last-child { border-bottom: none; }
