@@ -217,6 +217,10 @@ api.post('/troll-portrait', upload.single('portrait'), (req, res) => {
 });
 
 api.get('/troll-portrait/image', (req, res) => {
+  // no-store: same WebView-caching pitfall as the static JS/CSS earlier —
+  // without it, a 404 seen before the first upload can get stuck cached
+  // and the preview never updates even after a successful upload.
+  res.set('Cache-Control', 'no-store');
   if (!fs.existsSync(PORTRAIT_PATH)) return res.status(404).end();
   res.set('Content-Type', 'image/png');
   fs.createReadStream(PORTRAIT_PATH).pipe(res);
