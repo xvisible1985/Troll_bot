@@ -7,14 +7,19 @@ GlobalFonts.registerFromPath(path.join(__dirname, 'assets', 'NotoSans-Bold.ttf')
 
 const PORTRAIT_PATH = path.join(__dirname, 'uploads', 'troll-portrait.png');
 
-// Portrait-ish aspect ratio (not the earlier wide landscape one) so
-// Telegram's chat bubble renders it full-width and tall — a wide/short
-// image gets shown small, leaving blank space beside it where the client's
-// quick-forward icon ends up sitting.
-const WIDTH = 760;
-const HEIGHT = 920;
+// Top section: portrait + stage/weight/activity beside it (unchanged from
+// before). Bottom section: the 4 bars, now spanning the FULL width instead
+// of being squeezed into the narrow column beside the portrait — that's
+// what let long label+value combos (e.g. "Отношение к тебе" / "-45
+// (недолюбливает)") collide in the old layout.
+const WIDTH = 800;
 const PAD = 24;
+const TITLE_H = 46;
+const TOP_H = 340;
+const SECTION_GAP = 26;
+const BAR_ROW_H = 92;
 const PORTRAIT_W = 300;
+const HEIGHT = PAD * 2 + TITLE_H + SECTION_GAP + TOP_H + SECTION_GAP + BAR_ROW_H * 4;
 
 const COLORS = {
   bg: '#181c16',
@@ -162,8 +167,14 @@ async function renderTrollCard(data) {
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-  const portraitH = HEIGHT - PAD * 2;
-  roundRectPath(ctx, PAD, PAD, PORTRAIT_W, portraitH, 18);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = COLORS.text;
+  ctx.font = '32px "Noto Sans Bold"';
+  ctx.fillText('Тролль под мостом', PAD, PAD + 30);
+
+  const topY = PAD + TITLE_H + SECTION_GAP;
+
+  roundRectPath(ctx, PAD, topY, PORTRAIT_W, TOP_H, 18);
   ctx.fillStyle = COLORS.panel;
   ctx.fill();
 
@@ -172,92 +183,84 @@ async function renderTrollCard(data) {
       const img = await loadImage(PORTRAIT_PATH);
       const inset = 16;
       const boxW = PORTRAIT_W - inset * 2;
-      const boxH = portraitH - inset * 2;
+      const boxH = TOP_H - inset * 2;
       const scale = Math.min(boxW / img.width, boxH / img.height);
       const dw = img.width * scale;
       const dh = img.height * scale;
       const dx = PAD + inset + (boxW - dw) / 2;
-      const dy = PAD + inset + (boxH - dh) / 2;
+      const dy = topY + inset + (boxH - dh) / 2;
       ctx.save();
-      roundRectPath(ctx, PAD, PAD, PORTRAIT_W, portraitH, 18);
+      roundRectPath(ctx, PAD, topY, PORTRAIT_W, TOP_H, 18);
       ctx.clip();
       ctx.drawImage(img, dx, dy, dw, dh);
       ctx.restore();
     } catch {}
   } else {
     ctx.fillStyle = COLORS.textMuted;
-    ctx.font = '20px "Noto Sans"';
+    ctx.font = '18px "Noto Sans"';
     ctx.textAlign = 'center';
-    ctx.fillText('портрет не загружен', PAD + PORTRAIT_W / 2, PAD + portraitH / 2);
+    ctx.fillText('портрет не загружен', PAD + PORTRAIT_W / 2, topY + TOP_H / 2);
   }
 
-  const rowsX = PAD + PORTRAIT_W + 30;
-  const rowsW = WIDTH - rowsX - PAD;
-  let y = PAD + 10;
+  // Top-right column: stage / weight / activity, beside the portrait.
+  const infoX = PAD + PORTRAIT_W + 28;
+  const infoW = WIDTH - infoX - PAD;
+  let y = topY + 6;
 
+  function infoRow(icon, color, label, valueText) {
+    drawIcon(ctx, icon, infoX + 18, y + 15, 34, color);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = COLORS.text;
+    ctx.font = '21px "Noto Sans Bold"';
+    ctx.fillText(label, infoX + 44, y + 22);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = COLORS.textMuted;
+    ctx.font = '19px "Noto Sans"';
+    ctx.fillText(valueText, infoX + infoW, y + 22);
+    y += 44;
+  }
+
+  infoRow('sprout', COLORS.mood, 'Стадия', data.stageName);
+  infoRow('weight', COLORS.satiety, 'Вес', `${data.weight} кг`);
+
+  drawIcon(ctx, 'paw', infoX + 18, y + 15, 34, COLORS.text);
   ctx.textAlign = 'left';
   ctx.fillStyle = COLORS.text;
-  ctx.font = '34px "Noto Sans Bold"';
-  ctx.fillText('Тролль под мостом', rowsX, y + 26);
-  y += 62;
-
-  // The right column is narrower than the earlier landscape layout, so a
-  // long label ("Отношение к тебе") and a long value ("-45 (недолюбливает)")
-  // no longer fit side by side on one line — label sits on the icon's line,
-  // value sits on its own line directly above the bar instead.
-  function barRow(icon, color, label, valueText, value, max, centered) {
-    const rowTop = y;
-    drawIcon(ctx, icon, rowsX + 20, rowTop + 16, 36, color);
-    ctx.textAlign = 'left';
-    ctx.fillStyle = COLORS.text;
-    ctx.font = '22px "Noto Sans Bold"';
-    ctx.fillText(label, rowsX + 48, rowTop + 22);
-    ctx.textAlign = 'right';
-    ctx.fillStyle = COLORS.textMuted;
-    ctx.font = '17px "Noto Sans"';
-    ctx.fillText(valueText, rowsX + rowsW, rowTop + 54);
-    drawBar(ctx, rowsX, rowTop + 62, rowsW, 16, value, max, color, centered);
-    y = rowTop + 100;
+  ctx.font = '21px "Noto Sans Bold"';
+  ctx.fillText('Занятие', infoX + 44, y + 22);
+  y += 38;
+  ctx.font = '19px "Noto Sans"';
+  ctx.fillStyle = COLORS.textMuted;
+  const activityBottom = topY + TOP_H - 6;
+  for (const line of wrapText(ctx, data.activity, infoW - 44)) {
+    y += 27;
+    if (y <= activityBottom) ctx.fillText(line, infoX + 44, y);
   }
 
-  function textRow(icon, color, label, valueText) {
-    drawIcon(ctx, icon, rowsX + 20, y + 15, 36, color);
+  // Bottom section: full-width bars — plenty of room now for label and
+  // value to share one line even for the longest combo ("Отношение к тебе"
+  // / "-45 (недолюбливает)"), unlike the old narrow side-column layout.
+  let barY = topY + TOP_H + SECTION_GAP;
+  const barsW = WIDTH - PAD * 2;
+
+  function barRow(icon, color, label, valueText, value, max, centered) {
+    drawIcon(ctx, icon, PAD + 22, barY + 18, 40, color);
     ctx.textAlign = 'left';
     ctx.fillStyle = COLORS.text;
-    ctx.font = '22px "Noto Sans Bold"';
-    ctx.fillText(label, rowsX + 48, y + 22);
+    ctx.font = '24px "Noto Sans Bold"';
+    ctx.fillText(label, PAD + 52, barY + 25);
     ctx.textAlign = 'right';
     ctx.fillStyle = COLORS.textMuted;
     ctx.font = '20px "Noto Sans"';
-    ctx.fillText(valueText, rowsX + rowsW, y + 22);
-    y += 48;
+    ctx.fillText(valueText, PAD + barsW, barY + 25);
+    drawBar(ctx, PAD, barY + 44, barsW, 18, value, max, color, centered);
+    barY += BAR_ROW_H;
   }
 
   barRow('heart', COLORS.health, 'Здоровье', `${data.health}/100`, data.health, 100, false);
   barRow('drumstick', COLORS.satiety, 'Сытость', `${data.satiety}/100 (${data.satietyWord})`, data.satiety, 100, false);
   barRow('smiley', COLORS.mood, 'Настроение', `${data.mood}/100 (${data.moodWord})`, data.mood, 100, false);
   barRow('handshake', COLORS.attitudePos, 'Отношение к тебе', `${data.attitude > 0 ? '+' : ''}${data.attitude} (${data.attitudeWord})`, data.attitude, 100, true);
-
-  y += 12;
-  textRow('sprout', COLORS.mood, 'Стадия', data.stageName);
-  textRow('weight', COLORS.satiety, 'Вес', `${data.weight} кг`);
-
-  // Activity flavor text can be a full sentence — wraps onto its own lines
-  // below the icon+label row instead of squeezing into a single right-
-  // aligned value like the other rows.
-  drawIcon(ctx, 'paw', rowsX + 20, y + 15, 36, COLORS.text);
-  ctx.textAlign = 'left';
-  ctx.fillStyle = COLORS.text;
-  ctx.font = '22px "Noto Sans Bold"';
-  ctx.fillText('Занятие', rowsX + 48, y + 22);
-  y += 36;
-  ctx.font = '20px "Noto Sans"';
-  ctx.fillStyle = COLORS.textMuted;
-  ctx.textAlign = 'left';
-  for (const line of wrapText(ctx, data.activity, rowsW - 48)) {
-    y += 28;
-    ctx.fillText(line, rowsX + 48, y);
-  }
 
   return canvas.encode('png');
 }
