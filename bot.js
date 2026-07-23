@@ -417,38 +417,47 @@ bot.onText(/\/troll\b/, (msg) => {
 // (and the callback_query handler below) can trigger the exact same logic
 // as typing /play, /feed, /kick — only chatId/from are actually used by any
 // of these, so a callback_query's message.chat/from line up just as well.
+function actorName(from) {
+  return from.username ? `@${from.username}` : from.first_name;
+}
+
+// Note: isSilenced (the 1-hour window after /kick) intentionally does NOT
+// gate these three — being "silenced" only suppresses autonomous mischief
+// (checked separately in backgroundTick and the message handler), not direct
+// interaction. The troll always reacts to /play, /feed, /kick regardless of
+// how recently it was kicked.
 function performPlay(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || chatId !== state.chat_id || isSilenced(state)) return;
+  if (!state || chatId !== state.chat_id) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    bot.sendMessage(chatId, pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!'));
+    bot.sendMessage(chatId, `${actorName(from)} → ${pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!')}`);
     return;
   }
   db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'play');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_play_delta'));
-  bot.sendMessage(chatId, pickPhrase('play', 'Моя рада играть с твоя!'));
+  bot.sendMessage(chatId, `${actorName(from)} → ${pickPhrase('play', 'Моя рада играть с твоя!')}`);
 }
 
 function performKick(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || chatId !== state.chat_id || isSilenced(state)) return;
+  if (!state || chatId !== state.chat_id) return;
   const silencedUntil = Math.floor(Date.now() / 1000) + 60 * 60;
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), silenced_until = ? WHERE id = 1').run(silencedUntil);
   logAction(from.id, from.username || from.first_name, 'kick');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
-  bot.sendMessage(chatId, pickPhrase('kick', 'Твоя злой! Моя обижаться!'));
+  bot.sendMessage(chatId, `${actorName(from)} → ${pickPhrase('kick', 'Твоя злой! Моя обижаться!')}`);
 }
 
 function performFeed(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || chatId !== state.chat_id || isSilenced(state)) return;
+  if (!state || chatId !== state.chat_id) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    bot.sendMessage(chatId, pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!'));
+    bot.sendMessage(chatId, `${actorName(from)} → ${pickPhrase('woken_angry', 'Твоя разбудить моя! Моя злой!')}`);
     return;
   }
   const newFeedCount = state.feed_count + 1;
@@ -461,7 +470,7 @@ function performFeed(chatId, from) {
   logAction(from.id, from.username || from.first_name, 'feed');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_feed_delta'));
-  bot.sendMessage(chatId, pickPhrase('feed', 'Ням-ням, спасибо твоя!'));
+  bot.sendMessage(chatId, `${actorName(from)} → ${pickPhrase('feed', 'Ням-ням, спасибо твоя!')}`);
   if (newStage > oldStage) {
     bot.sendMessage(chatId, `Тролль подрос! Теперь твоя видеть: ${STAGE_NAMES[newStage]}!`);
   }
