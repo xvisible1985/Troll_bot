@@ -580,7 +580,14 @@ function triggerMischief(chatId) {
       bot.sendMessage(chatId, `*${template.replace(/\{user\}/g, target)}*`).catch(() => {});
     } else {
       const template = pickPhrase(TARGETED_ACTION_TIER_CATEGORIES[effectiveTier], 'подшутить над {user}');
-      bot.sendMessage(chatId, `/try ${template.replace(/\{user\}/g, target)}`).catch(() => {});
+      const action = template.replace(/\{user\}/g, target);
+      // Rolls its own dice instead of sending "/try <action>" for the other
+      // bot to pick up — Telegram doesn't deliver messages authored by one
+      // bot to another bot's updates, so try-bot never saw these at all.
+      // Self-contained here, same "actor — action outcome: N/100" shape.
+      const roll = Math.floor(Math.random() * 101);
+      const outcome = roll < 50 ? '❌ неудачно' : '✅ удачно';
+      bot.sendMessage(chatId, `Тролль — ${action} ${outcome}: ${roll}/100`).catch(() => {});
     }
     return;
   }
