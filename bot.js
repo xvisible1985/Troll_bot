@@ -28,6 +28,14 @@ if (proxy) {
 // tg-bot hit and fixed the same way).
 const bot = new TelegramBot(token, { polling: { autoStart: false }, request: { agent } });
 
+// Needed to detect "user replied directly to a message the troll sent" (the
+// passive /teach path) — Telegram tells us reply_to_message.from, but we
+// need our own id to compare against.
+let botUserId = null;
+bot.getMe().then((me) => { botUserId = me.id; }).catch((err) => {
+  console.error('getMe failed, passive teach-by-reply will stay disabled:', err.message);
+});
+
 // Dedupe by update_id — same rationale as tg-bot: a flaky proxy tunnel can
 // cause the same update to be delivered and processed twice.
 const seenUpdateIds = new Set();
@@ -90,6 +98,11 @@ db.exec(`
     stage INTEGER NOT NULL DEFAULT 1,
     satiety INTEGER NOT NULL DEFAULT 100,
     last_hunger_action_at INTEGER,
+    char_appetite INTEGER NOT NULL DEFAULT 0,
+    char_playfulness INTEGER NOT NULL DEFAULT 0,
+    char_anger INTEGER NOT NULL DEFAULT 0,
+    char_lust INTEGER NOT NULL DEFAULT 0,
+    char_naughtiness INTEGER NOT NULL DEFAULT 0,
     born_at INTEGER DEFAULT (strftime('%s','now'))
   )
 `);
@@ -122,6 +135,14 @@ try {
 try {
   db.exec('ALTER TABLE troll_state ADD COLUMN last_hunger_action_at INTEGER');
 } catch {}
+// Character traits (0-100, cumulative only — no decay, they reflect the
+// troll's growing personality rather than a moment-to-moment stat). Each
+// needs its own ALTER since SQLite only adds one column per statement.
+for (const column of ['char_appetite', 'char_playfulness', 'char_anger', 'char_lust', 'char_naughtiness']) {
+  try {
+    db.exec(`ALTER TABLE troll_state ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
+  } catch {}
+}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,6 +183,19 @@ db.exec(`
     has_own_text INTEGER NOT NULL DEFAULT 0,
     emoji TEXT,
     added_at INTEGER DEFAULT (strftime('%s','now'))
+  )
+`);
+// Free-form lines taught by any user via /teach or by replying directly to
+// the troll — later replayed verbatim at random to other users' messages.
+// Deliberately uncurated (no category/moderation): the joke is the troll
+// parroting whatever it once heard.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS troll_learned_phrases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    taught_by_user_id INTEGER,
+    taught_by_username TEXT,
+    created_at INTEGER DEFAULT (strftime('%s','now'))
   )
 `);
 
@@ -268,6 +302,36 @@ const PHRASE_SEED = {
     'Твоя что, моя не видеть?! Моя сытый совсем! *кидает еда в твоя*',
     'Моя не хотеть больше кушать! *швыряет еда в твоя лицо*',
     'Убирать эта еда! Моя и так полный! *кидает в твоя*',
+  ],
+  feed_overeat: [
+    'Ой-ой, моя объедаться! Живот болеть, но еда вкусно!',
+    'Моя есть слишком много! Моя теперь толстый и довольный.',
+    'Уф, моя переедать! Но спасибо твоя за еда!',
+  ],
+  tease: [
+    'Твоя дразнить моя?! Моя не любить это!',
+    'Прекратить дразнить моя, а то моя правда злиться!',
+    'Моя злой на твоя за это!',
+  ],
+  boobs_baby: [
+    'Ооо, еда! Твоя носить еда с собой?!',
+    'Моя видеть кушать! Дай моя пробовать!',
+    'Твоя показывать моя еда! Моя хотеть кушать!',
+  ],
+  boobs_teen: [
+    'Э-э... моя не знать, куда смотреть... но моя смотреть.',
+    'Твоя показывать моя... что-то интересное. Моя краснеть.',
+    'Моя не понимать, но моя нравиться смотреть.',
+  ],
+  boobs_young: [
+    'Ого! Твоя красивый! Моя хотеть смотреть ещё!',
+    'Моя нравиться то, что твоя показывать!',
+    'Твоя дразнить моя! Моя не против!',
+  ],
+  boobs_adult: [
+    'Моя знать точно, что это, и моя очень довольный!',
+    'Твоя знать, как порадовать тролля! Моя обожать это!',
+    'О да! Моя хотеть больше!',
   ],
   hunger_beg: [
     'Моя кушать хотеть! Кто-нибудь покормить моя, а?',
@@ -383,6 +447,21 @@ function noticeUser(userId, username, firstName) {
 function adjustAttitude(userId, delta) {
   db.prepare('UPDATE troll_relationships SET attitude = MAX(-100, MIN(100, attitude + ?)) WHERE user_id = ?').run(delta, userId);
 }
+
+// --- Learned phrases ("сказать") ---
+// Deliberately unmoderated free text, taught by any user via /teach or by
+// replying directly to something the troll said. Replayed verbatim later at
+// random, addressed to whoever happens to be talking at the time.
+function learnPhrase(text, from) {
+  db.prepare(
+    'INSERT INTO troll_learned_phrases (text, taught_by_user_id, taught_by_username) VALUES (?, ?, ?)'
+  ).run(text, from.id, from.username || from.first_name);
+}
+
+// Chance, per qualifying ordinary chat message, that the troll parrots a
+// random previously-learned phrase back as a reply — separate from (and
+// mutually exclusive with) the regular mischief trigger.
+const LEARNED_PHRASE_REPLY_CHANCE = 0.08;
 
 // --- Growth ---
 const STAGE_NAMES = { 1: 'малыш', 2: 'подросток', 3: 'молодой', 4: 'взрослый' };
@@ -530,6 +609,21 @@ bot.onText(/\/troll\b/, (msg) => {
   bot.sendMessage(msg.chat.id, lines.join('\n'), TROLL_ACTION_KEYBOARD);
 });
 
+bot.onText(/\/troll_character\b/, (msg) => {
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет. Позови его через /troll_here.');
+  if (msg.chat.id !== state.chat_id) return;
+  const lines = [
+    '🎭 Характер тролля:',
+    `🍽️ Аппетит: ${state.char_appetite}/100`,
+    `🎈 Игривость: ${state.char_playfulness}/100`,
+    `😡 Злость: ${state.char_anger}/100`,
+    `💋 Похоть: ${state.char_lust}/100`,
+    `😈 Вредность: ${state.char_naughtiness}/100`,
+  ];
+  bot.sendMessage(msg.chat.id, lines.join('\n'));
+});
+
 // --- Public commands: play / kick / feed ---
 // Extracted from the command handlers so the /troll card's inline buttons
 // (and the callback_query handler below) can trigger the exact same logic
@@ -552,7 +646,7 @@ function performPlay(chatId, from) {
     sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
     return;
   }
-  db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10) WHERE id = 1').run();
+  db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10), char_playfulness = MIN(100, char_playfulness + 6), char_anger = MAX(0, char_anger - 4) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'play');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_play_delta'));
@@ -578,26 +672,69 @@ function performFeed(chatId, from) {
     sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
     return;
   }
-  // Already full (satiety 90-100): feeding is rejected outright — the troll
-  // throws the food back instead of eating it, and it costs the feeder some
-  // attitude for not noticing. feed_count/health/mood/satiety stay untouched.
-  if (state.satiety >= 90) {
+  // Completely full (satiety 100): the only case rejected outright — the
+  // troll throws the food back instead of eating it, and it costs the
+  // feeder some attitude for not noticing. Nothing else changes.
+  if (state.satiety >= 100) {
     logAction(from.id, from.username || from.first_name, 'feed_reject');
     noticeUser(from.id, from.username, from.first_name);
     adjustAttitude(from.id, getSettingNumber('attitude_feed_reject_delta'));
     sendCategoryReply(chatId, 'feed_reject', 'Моя сытый! *кидает еда в твоя*', actorName(from));
     return;
   }
+  // Satiety 90-99: still eats, but it's overeating — same stat gains, plus
+  // it grows the troll's appetite trait (a lasting personality effect, not
+  // a momentary one like mood/health).
+  const overeating = state.satiety >= 90;
   const newFeedCount = state.feed_count + 1;
   const now = Math.floor(Date.now() / 1000);
   const satietyGain = getSettingNumber('satiety_feed_gain');
-  db.prepare(
-    'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), satiety = MIN(100, satiety + ?), last_fed_at = ? WHERE id = 1'
-  ).run(newFeedCount, satietyGain, now);
-  logAction(from.id, from.username || from.first_name, 'feed');
+  if (overeating) {
+    db.prepare(
+      'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), satiety = MIN(100, satiety + ?), char_appetite = MIN(100, char_appetite + 6), last_fed_at = ? WHERE id = 1'
+    ).run(newFeedCount, satietyGain, now);
+  } else {
+    db.prepare(
+      'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), satiety = MIN(100, satiety + ?), last_fed_at = ? WHERE id = 1'
+    ).run(newFeedCount, satietyGain, now);
+  }
+  logAction(from.id, from.username || from.first_name, overeating ? 'feed_overeat' : 'feed');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_feed_delta'));
-  sendCategoryReply(chatId, 'feed', 'Ням-ням, спасибо твоя!', actorName(from));
+  if (overeating) {
+    sendCategoryReply(chatId, 'feed_overeat', 'Ммм, моя переедать, но моя не мочь остановиться...', actorName(from));
+  } else {
+    sendCategoryReply(chatId, 'feed', 'Ням-ням, спасибо твоя!', actorName(from));
+  }
+}
+
+function performTease(chatId, from) {
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (!state || chatId !== state.chat_id) return;
+  if (state.is_asleep) {
+    db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
+    sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
+    return;
+  }
+  db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10), char_anger = MIN(100, char_anger + 8) WHERE id = 1').run();
+  logAction(from.id, from.username || from.first_name, 'tease');
+  noticeUser(from.id, from.username, from.first_name);
+  sendCategoryReply(chatId, 'tease', 'Твоя дразнить моя?! Моя злиться!', actorName(from));
+}
+
+// малыш sees it as food (the joke the whole feature started from); the
+// reaction "matures" alongside the troll's growth stage after that. Every
+// stage raises lust the same amount — only the flavor text differs.
+const BOOBS_CATEGORY_BY_STAGE = { 1: 'boobs_baby', 2: 'boobs_teen', 3: 'boobs_young', 4: 'boobs_adult' };
+
+function performBoobs(chatId, from) {
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (!state || chatId !== state.chat_id) return;
+  const category = BOOBS_CATEGORY_BY_STAGE[state.stage] || 'boobs_baby';
+  db.prepare('UPDATE troll_state SET char_lust = MIN(100, char_lust + 8) WHERE id = 1').run();
+  logAction(from.id, from.username || from.first_name, 'boobs');
+  noticeUser(from.id, from.username, from.first_name);
+  sendCategoryReply(chatId, category, 'Моя видеть еда!', actorName(from));
 }
 
 bot.onText(/\/play\b/, (msg) => {
@@ -610,6 +747,25 @@ bot.onText(/\/kick\b/, (msg) => {
 
 bot.onText(/\/feed\b/, (msg) => {
   performFeed(msg.chat.id, msg.from);
+});
+
+bot.onText(/\/tease\b/, (msg) => {
+  performTease(msg.chat.id, msg.from);
+});
+
+bot.onText(/\/boobs\b/, (msg) => {
+  performBoobs(msg.chat.id, msg.from);
+});
+
+// Explicit alternative to the passive "reply to the troll" teach path (see
+// the message handler below) — either works the same way.
+bot.onText(/\/teach ([\s\S]+)/, (msg, match) => {
+  const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
+  if (!state || msg.chat.id !== state.chat_id) return;
+  const text = match[1].trim();
+  if (!text) return;
+  learnPhrase(text, msg.from);
+  bot.sendMessage(msg.chat.id, `Тролль запомнил: "${text}"`).catch(() => {});
 });
 
 // Buttons on the /troll status card (callback_data-type inline buttons work
@@ -692,6 +848,11 @@ function triggerMischief(chatId) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   const stage = state.stage;
   const tier = getMischiefTier(state.mood, getSettingNumber('naughtiness'), stage);
+  // The admin's naughtiness slider still drives how mischievous the troll
+  // acts (unchanged); this just lets the character trait of the same name
+  // reflect how much mischief it's actually gotten up to, growing more per
+  // meaner tier. Purely cosmetic/display for now — nothing reads it back.
+  db.prepare('UPDATE troll_state SET char_naughtiness = MIN(100, char_naughtiness + ?) WHERE id = 1').run(tier + 1);
 
   if (recentMessages.length > 0 && Math.random() < 0.5) {
     const targetInfo = pickMischiefTarget();
@@ -836,12 +997,26 @@ bot.on('message', (msg) => {
   if (!state || msg.chat.id !== state.chat_id) return;
   pushRecentMessage({ userId: msg.from.id, username: msg.from.username, firstName: msg.from.first_name });
   noticeUser(msg.from.id, msg.from.username, msg.from.first_name);
+
+  // Passive alternative to /teach: replying directly to anything the troll
+  // sent (a dialogue line or an autonomous mischief message) teaches it
+  // that phrase. Runs regardless of paused/silenced/night, since it's the
+  // user acting, not the troll.
+  const repliedToTroll = !!(msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === botUserId);
+  if (repliedToTroll && msg.text) {
+    learnPhrase(msg.text, msg.from);
+    bot.sendMessage(msg.chat.id, `Тролль запомнил: "${msg.text}"`).catch(() => {});
+  }
+
   const newCount = state.message_count + 1;
   db.prepare('UPDATE troll_state SET message_count = ? WHERE id = 1').run(newCount);
   if (getSetting('paused') === '1' || isSilenced(state) || isNightNow()) return;
   const trigger = getSettingNumber('mischief_message_trigger');
   if (newCount % trigger === 0) {
     triggerMischief(state.chat_id);
+  } else if (!repliedToTroll && Math.random() < LEARNED_PHRASE_REPLY_CHANCE) {
+    const learned = db.prepare('SELECT text FROM troll_learned_phrases ORDER BY RANDOM() LIMIT 1').get();
+    if (learned) bot.sendMessage(msg.chat.id, learned.text, { reply_to_message_id: msg.message_id }).catch(() => {});
   }
 });
 
@@ -971,9 +1146,13 @@ bot.onText(/\/troll_phrase_edit (\d+) ([\s\S]+)/, (msg, match) => {
 const TROLL_HELP_PUBLIC = [
   '🧌 Тролль под мостом:',
   '/troll — статус тролля (здоровье, сытость, вес, настроение, стадия)',
-  '/play — поиграть с тролем (+настроение)',
-  '/feed — покормить тролля (+здоровье, +сытость, +настроение, растёт; если тролль уже сыт — кинет еду обратно)',
+  '/troll_character — характер тролля (аппетит, игривость, злость, похоть, вредность)',
+  '/play — поиграть с тролем (+настроение, +игривость, -злость)',
+  '/feed — покормить тролля (+здоровье, +сытость, +настроение; от 90 до 99 сытости — переедает и это растит аппетит; при 100 — кинет еду обратно)',
   '/kick — пнуть тролля (-настроение, замолкает на час)',
+  '/tease — подразнить тролля (-настроение, +злость)',
+  '/boobs — показать тролю сиську (+похоть, реакция зависит от стадии роста)',
+  '/teach <фраза> — научить тролля фразе; он потом будет иногда повторять её случайным людям (можно и просто ответить на любое сообщение тролля)',
 ].join('\n');
 
 const TROLL_HELP_ADMIN = [
