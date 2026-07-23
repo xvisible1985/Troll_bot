@@ -14,6 +14,13 @@ async function apiFetch(path, options = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+const STAGE_OPTIONS = [
+  { value: 1, label: 'малыш' },
+  { value: 2, label: 'подросток' },
+  { value: 3, label: 'молодой' },
+  { value: 4, label: 'взрослый' },
+];
+
 function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('active', p.id === 'panel-' + tab));
@@ -72,13 +79,18 @@ async function loadStatus() {
     <div class="card">
       <p class="eyebrow">Сейчас</p>
       <div class="stat-grid">
-        <div class="stat"><div class="label">Здоровье</div><div class="value mono">${data.health}/100</div>
+        <div class="stat"><div class="label">❤️ Здоровье</div><div class="value mono">${data.health}/100</div>
           <div class="bar-track"><div class="bar-fill" style="width:${data.health}%"></div></div></div>
-        <div class="stat"><div class="label">Вес</div><div class="value mono">${data.weight} кг</div></div>
-        <div class="stat"><div class="label">Настроение</div><div class="value">${data.moodWord}</div></div>
-        <div class="stat"><div class="label">Стадия</div><div class="value">${data.stageName}</div></div>
+        <div class="stat"><div class="label">⚖️ Вес</div><div class="value mono">${data.weight} кг</div></div>
+        <div class="stat"><div class="label">😊 Настроение</div><div class="value">${data.moodWord}</div></div>
+        <div class="stat">
+          <div class="label">🌱 Стадия (управляется вручную)</div>
+          <select id="stage-select" style="margin-top:4px; width:100%; padding:6px 8px; border-radius:8px; border:1px solid var(--border); background:var(--bg-sunken); color:var(--text); font-size:13px;">
+            ${STAGE_OPTIONS.map((opt) => `<option value="${opt.value}" ${opt.value === data.stage ? 'selected' : ''}>${opt.label}</option>`).join('')}
+          </select>
+        </div>
       </div>
-      <div class="activity-line"><span>💤</span><span>${data.activity}</span></div>
+      <div class="activity-line"><span>🎭</span><span>${data.activity}</span></div>
     </div>
     <div class="card">
       <p class="eyebrow">Быстрые действия</p>
@@ -95,6 +107,14 @@ async function loadStatus() {
   document.getElementById('btn-reset').addEventListener('click', async () => {
     if (!confirm('Точно сбросить тролля полностью?')) return;
     await apiFetch('/reset', { method: 'POST' });
+    loadStatus();
+  });
+  document.getElementById('stage-select').addEventListener('change', async (e) => {
+    await apiFetch('/stage', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage: Number(e.target.value) }),
+    });
     loadStatus();
   });
 }
@@ -312,6 +332,9 @@ function renderSay() {
         <span>📎</span>
         <input type="file" id="say-photo" accept="image/*">
       </div>
+      <label style="font-size:12.5px; display:flex; align-items:center; gap:6px; margin-top:10px;">
+        <input type="checkbox" id="say-trollify"> перевести на трольский акцент
+      </label>
       <div class="say-actions"><button class="btn" id="say-send">Отправить в чат</button></div>
       <div id="say-status" style="margin-top:8px; font-size:12.5px; color:var(--text-muted);"></div>
     </div>
@@ -319,10 +342,12 @@ function renderSay() {
   document.getElementById('say-send').addEventListener('click', async () => {
     const text = document.getElementById('say-input').value.trim();
     const photoInput = document.getElementById('say-photo');
+    const applyTrollify = document.getElementById('say-trollify').checked;
     const status = document.getElementById('say-status');
     if (!text) return;
     const formData = new FormData();
     formData.append('text', text);
+    formData.append('applyTrollify', applyTrollify ? '1' : '0');
     if (photoInput.files[0]) formData.append('photo', photoInput.files[0]);
     status.textContent = 'Отправка…';
     try {
