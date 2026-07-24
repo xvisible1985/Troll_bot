@@ -14,10 +14,10 @@ const PORTRAIT_PATH = path.join(__dirname, 'uploads', 'troll-portrait.png');
 // (недолюбливает)") collide in the old layout.
 const WIDTH = 800;
 const PAD = 24;
-const TITLE_H = 54;
-const TOP_H = 400;
+const TITLE_H = 58;
+const TOP_H = 440;
 const SECTION_GAP = 28;
-const BAR_ROW_H = 100;
+const BAR_ROW_H = 112;
 const PORTRAIT_W = 300;
 const HEIGHT = PAD * 2 + TITLE_H + SECTION_GAP + TOP_H + SECTION_GAP + BAR_ROW_H * 4;
 
@@ -169,8 +169,8 @@ async function renderTrollCard(data) {
 
   ctx.textAlign = 'left';
   ctx.fillStyle = COLORS.text;
-  ctx.font = '38px "Noto Sans Bold"';
-  ctx.fillText('Тролль под мостом', PAD, PAD + 34);
+  ctx.font = '42px "Noto Sans Bold"';
+  ctx.fillText('Тролль под мостом', PAD, PAD + 36);
 
   const topY = PAD + TITLE_H + SECTION_GAP;
 
@@ -197,7 +197,7 @@ async function renderTrollCard(data) {
     } catch {}
   } else {
     ctx.fillStyle = COLORS.textMuted;
-    ctx.font = '20px "Noto Sans"';
+    ctx.font = '22px "Noto Sans"';
     ctx.textAlign = 'center';
     ctx.fillText('портрет не загружен', PAD + PORTRAIT_W / 2, topY + TOP_H / 2);
   }
@@ -207,36 +207,34 @@ async function renderTrollCard(data) {
   const infoW = WIDTH - infoX - PAD;
   let y = topY + 6;
 
-  // Same type scale as the bottom bar rows now (label 29/bold, value 24) —
-  // was noticeably smaller than the bars before, looked inconsistent.
   function infoRow(icon, color, label, valueText) {
-    drawIcon(ctx, icon, infoX + 22, y + 19, 42, color);
+    drawIcon(ctx, icon, infoX + 24, y + 21, 46, color);
     ctx.textAlign = 'left';
     ctx.fillStyle = COLORS.text;
-    ctx.font = '29px "Noto Sans Bold"';
-    ctx.fillText(label, infoX + 54, y + 29);
+    ctx.font = '34px "Noto Sans Bold"';
+    ctx.fillText(label, infoX + 60, y + 32);
     ctx.textAlign = 'right';
     ctx.fillStyle = COLORS.textMuted;
-    ctx.font = '24px "Noto Sans"';
-    ctx.fillText(valueText, infoX + infoW, y + 29);
-    y += 58;
+    ctx.font = '29px "Noto Sans"';
+    ctx.fillText(valueText, infoX + infoW, y + 32);
+    y += 66;
   }
 
   infoRow('sprout', COLORS.mood, 'Стадия', data.stageName);
   infoRow('weight', COLORS.satiety, 'Вес', `${data.weight} кг`);
 
-  drawIcon(ctx, 'paw', infoX + 22, y + 19, 42, COLORS.text);
+  drawIcon(ctx, 'paw', infoX + 24, y + 21, 46, COLORS.text);
   ctx.textAlign = 'left';
   ctx.fillStyle = COLORS.text;
-  ctx.font = '29px "Noto Sans Bold"';
-  ctx.fillText('Занятие', infoX + 54, y + 29);
-  y += 46;
-  ctx.font = '24px "Noto Sans"';
+  ctx.font = '34px "Noto Sans Bold"';
+  ctx.fillText('Занятие', infoX + 60, y + 32);
+  y += 52;
+  ctx.font = '27px "Noto Sans"';
   ctx.fillStyle = COLORS.textMuted;
   const activityBottom = topY + TOP_H - 6;
-  for (const line of wrapText(ctx, data.activity, infoW - 54)) {
-    y += 33;
-    if (y <= activityBottom) ctx.fillText(line, infoX + 54, y);
+  for (const line of wrapText(ctx, data.activity, infoW - 60)) {
+    y += 36;
+    if (y <= activityBottom) ctx.fillText(line, infoX + 60, y);
   }
 
   // Bottom section: full-width bars — plenty of room now for label and
@@ -246,16 +244,16 @@ async function renderTrollCard(data) {
   const barsW = WIDTH - PAD * 2;
 
   function barRow(icon, color, label, valueText, value, max, centered) {
-    drawIcon(ctx, icon, PAD + 24, barY + 20, 46, color);
+    drawIcon(ctx, icon, PAD + 26, barY + 22, 50, color);
     ctx.textAlign = 'left';
     ctx.fillStyle = COLORS.text;
-    ctx.font = '29px "Noto Sans Bold"';
-    ctx.fillText(label, PAD + 58, barY + 29);
+    ctx.font = '34px "Noto Sans Bold"';
+    ctx.fillText(label, PAD + 64, barY + 33);
     ctx.textAlign = 'right';
     ctx.fillStyle = COLORS.textMuted;
-    ctx.font = '24px "Noto Sans"';
-    ctx.fillText(valueText, PAD + barsW, barY + 29);
-    drawBar(ctx, PAD, barY + 48, barsW, 20, value, max, color, centered);
+    ctx.font = '29px "Noto Sans"';
+    ctx.fillText(valueText, PAD + barsW, barY + 33);
+    drawBar(ctx, PAD, barY + 54, barsW, 22, value, max, color, centered);
     barY += BAR_ROW_H;
   }
 
