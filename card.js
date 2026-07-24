@@ -15,7 +15,7 @@ const PORTRAIT_PATH = path.join(__dirname, 'uploads', 'troll-portrait.png');
 const WIDTH = 800;
 const PAD = 24;
 const TITLE_H = 54;
-const TOP_H = 360;
+const TOP_H = 400;
 const SECTION_GAP = 28;
 const BAR_ROW_H = 100;
 const PORTRAIT_W = 300;
@@ -207,34 +207,36 @@ async function renderTrollCard(data) {
   const infoW = WIDTH - infoX - PAD;
   let y = topY + 6;
 
+  // Same type scale as the bottom bar rows now (label 29/bold, value 24) —
+  // was noticeably smaller than the bars before, looked inconsistent.
   function infoRow(icon, color, label, valueText) {
-    drawIcon(ctx, icon, infoX + 20, y + 17, 38, color);
+    drawIcon(ctx, icon, infoX + 22, y + 19, 42, color);
     ctx.textAlign = 'left';
     ctx.fillStyle = COLORS.text;
-    ctx.font = '25px "Noto Sans Bold"';
-    ctx.fillText(label, infoX + 48, y + 25);
+    ctx.font = '29px "Noto Sans Bold"';
+    ctx.fillText(label, infoX + 54, y + 29);
     ctx.textAlign = 'right';
     ctx.fillStyle = COLORS.textMuted;
-    ctx.font = '22px "Noto Sans"';
-    ctx.fillText(valueText, infoX + infoW, y + 25);
-    y += 52;
+    ctx.font = '24px "Noto Sans"';
+    ctx.fillText(valueText, infoX + infoW, y + 29);
+    y += 58;
   }
 
   infoRow('sprout', COLORS.mood, 'Стадия', data.stageName);
   infoRow('weight', COLORS.satiety, 'Вес', `${data.weight} кг`);
 
-  drawIcon(ctx, 'paw', infoX + 20, y + 17, 38, COLORS.text);
+  drawIcon(ctx, 'paw', infoX + 22, y + 19, 42, COLORS.text);
   ctx.textAlign = 'left';
   ctx.fillStyle = COLORS.text;
-  ctx.font = '25px "Noto Sans Bold"';
-  ctx.fillText('Занятие', infoX + 48, y + 25);
-  y += 42;
-  ctx.font = '22px "Noto Sans"';
+  ctx.font = '29px "Noto Sans Bold"';
+  ctx.fillText('Занятие', infoX + 54, y + 29);
+  y += 46;
+  ctx.font = '24px "Noto Sans"';
   ctx.fillStyle = COLORS.textMuted;
   const activityBottom = topY + TOP_H - 6;
-  for (const line of wrapText(ctx, data.activity, infoW - 48)) {
-    y += 31;
-    if (y <= activityBottom) ctx.fillText(line, infoX + 48, y);
+  for (const line of wrapText(ctx, data.activity, infoW - 54)) {
+    y += 33;
+    if (y <= activityBottom) ctx.fillText(line, infoX + 54, y);
   }
 
   // Bottom section: full-width bars — plenty of room now for label and
