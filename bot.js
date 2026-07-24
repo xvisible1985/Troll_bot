@@ -1104,17 +1104,33 @@ bot.on('message', (msg) => {
 
   // Passive alternative to /teach: replying directly to anything the troll
   // sent (a dialogue line or an autonomous mischief message) teaches it
-  // that phrase. Runs regardless of paused/silenced/night, since it's the
-  // user acting, not the troll.
+  // that phrase — the troll immediately claps back with a tease/comeback
+  // line instead of a dry confirmation. Runs regardless of paused/silenced/
+  // night, since it's the user acting, not the troll.
   const repliedToTroll = !!(msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === botUserId);
   if (repliedToTroll && msg.text) {
     learnPhrase(msg.text, msg.from);
-    bot.sendMessage(msg.chat.id, `Тролль запомнил: "${msg.text}"`).catch(() => {});
+    const comeback = pickPhrase('tease', 'Твоя дразнить моя?! Моя не любить это!');
+    bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
   }
+
+  // Directly named ("тролль") in an ordinary message — same comeback pool,
+  // fresh regex instance every call since wordRegex's /g flag would
+  // otherwise carry stale lastIndex state across .test() calls on a shared
+  // one. Takes priority over the periodic mischief/learned-phrase chatter
+  // below when both would fire on the same message.
+  const addressedByName = !repliedToTroll && wordRegex('тролль').test(msg.text || '');
 
   const newCount = state.message_count + 1;
   db.prepare('UPDATE troll_state SET message_count = ? WHERE id = 1').run(newCount);
   if (getSetting('paused') === '1' || isSilenced(state) || isNightNow()) return;
+
+  if (addressedByName) {
+    const comeback = pickPhrase('tease', 'Твоя звать моя? Моя тут!');
+    bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
+    return;
+  }
+
   const trigger = getSettingNumber('mischief_message_trigger');
   if (newCount % trigger === 0) {
     triggerMischief(state.chat_id);
