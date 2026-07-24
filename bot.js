@@ -37,6 +37,46 @@ bot.getMe().then((me) => { botUserId = me.id; }).catch((err) => {
   console.error('getMe failed, passive teach-by-reply will stay disabled:', err.message);
 });
 
+// Telegram's "/" autocomplete menu is a separate, persistent list that only
+// changes via setMyCommands (or manually in BotFather) — it does NOT update
+// itself just because new bot.onText handlers get added in code. Setting it
+// here on every startup means new commands show up automatically after the
+// next restart, instead of silently working-but-invisible until someone
+// remembers to update BotFather by hand.
+const PUBLIC_COMMANDS = [
+  { command: 'troll', description: 'Статус тролля (здоровье, сытость, настроение, стадия)' },
+  { command: 'troll_character', description: 'Характер тролля (аппетит, игривость, злость, похоть, вредность)' },
+  { command: 'play', description: 'Поиграть с тролем' },
+  { command: 'feed', description: 'Покормить тролля' },
+  { command: 'kick', description: 'Пнуть тролля' },
+  { command: 'tease', description: 'Подразнить тролля' },
+  { command: 'boobs', description: 'Показать тролю сиську' },
+  { command: 'teach', description: 'Научить тролля фразе' },
+  { command: 'troll_help', description: 'Список всех команд' },
+];
+const ADMIN_ONLY_COMMANDS = [
+  { command: 'troll_here', description: 'Призвать тролля (одноразово)' },
+  { command: 'troll_settings', description: 'Текущие настройки' },
+  { command: 'troll_set', description: 'Изменить настройку' },
+  { command: 'troll_pause', description: 'Выключить шалости' },
+  { command: 'troll_resume', description: 'Включить шалости' },
+  { command: 'troll_reset', description: 'Полный сброс тролля' },
+  { command: 'troll_say', description: 'Сказать текст от лица тролля' },
+  { command: 'troll_phrases', description: 'Все реплики тролля по категориям' },
+  { command: 'troll_phrase_add', description: 'Добавить фразу' },
+  { command: 'troll_phrase_edit', description: 'Изменить фразу' },
+  { command: 'troll_phrase_del', description: 'Удалить фразу' },
+  { command: 'troll_panel', description: 'Открыть веб-панель управления' },
+];
+bot.setMyCommands(PUBLIC_COMMANDS).catch((err) => {
+  console.error('setMyCommands (default scope) failed:', err.message);
+});
+bot.setMyCommands([...PUBLIC_COMMANDS, ...ADMIN_ONLY_COMMANDS], {
+  scope: { type: 'chat', chat_id: ADMIN_CHAT_ID },
+}).catch((err) => {
+  console.error('setMyCommands (admin chat scope) failed:', err.message);
+});
+
 // Dedupe by update_id — same rationale as tg-bot: a flaky proxy tunnel can
 // cause the same update to be delivered and processed twice.
 const seenUpdateIds = new Set();
