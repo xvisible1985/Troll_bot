@@ -623,11 +623,17 @@ function getActivityLine(state) {
 
 const TROLL_ACTION_KEYBOARD = {
   reply_markup: {
-    inline_keyboard: [[
-      { text: '🎮 Играть', callback_data: 'troll_play' },
-      { text: '🍗 Покормить', callback_data: 'troll_feed' },
-      { text: '👢 Пнуть', callback_data: 'troll_kick' },
-    ]],
+    inline_keyboard: [
+      [
+        { text: '🎮 Играть', callback_data: 'troll_play' },
+        { text: '🍗 Покормить', callback_data: 'troll_feed' },
+        { text: '👢 Пнуть', callback_data: 'troll_kick' },
+      ],
+      [
+        { text: '😈 Дразнить', callback_data: 'troll_tease' },
+        { text: '🍈 Сиська', callback_data: 'troll_boobs' },
+      ],
+    ],
   },
 };
 
@@ -841,6 +847,8 @@ bot.on('callback_query', (query) => {
   if (query.data === 'troll_play') performPlay(chatId, query.from);
   else if (query.data === 'troll_feed') performFeed(chatId, query.from);
   else if (query.data === 'troll_kick') performKick(chatId, query.from);
+  else if (query.data === 'troll_tease') performTease(chatId, query.from);
+  else if (query.data === 'troll_boobs') performBoobs(chatId, query.from);
   else return;
   bot.answerCallbackQuery(query.id).catch(() => {});
 });
