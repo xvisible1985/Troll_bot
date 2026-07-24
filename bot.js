@@ -398,7 +398,10 @@ const PHRASE_SEED = {
   ],
 };
 
-const PHRASE_CATEGORIES = Object.keys(PHRASE_SEED);
+// tease_harsh isn't part of PHRASE_SEED (seeded separately below, since it
+// didn't exist at first-run time for already-deployed trolls) — added here
+// too so /troll_phrase_add and /troll_phrases still recognize it.
+const PHRASE_CATEGORIES = [...Object.keys(PHRASE_SEED), 'tease_harsh'];
 
 const phraseCount = db.prepare('SELECT COUNT(*) AS n FROM troll_phrases').get().n;
 if (phraseCount === 0) {
@@ -434,15 +437,48 @@ const TEASE_EXTRA_PHRASES = [
   'Ай, как обидно... нет, не обидно, моя просто зевать.',
   'Твоя злиться — моя становиться только веселее!',
 ];
-{
-  const existingTease = new Set(
-    db.prepare("SELECT text FROM troll_phrases WHERE category = 'tease'").all().map((r) => r.text)
+
+// Same tone as tease, but reserved for people the troll actively dislikes
+// (see pickTeaseCategory below) — split into its own category so the admin
+// panel's existing Фразы tab (which groups phrases by category with no
+// hardcoded list) shows it as its own separate, manageable section.
+const TEASE_HARSH_PHRASES = [
+  'Твоя совсем дурак, да? Моя видеть таких каждый день под мост.',
+  'Пошёл твоя отсюда, скотина неблагодарная!',
+  'Твоя мозг совсем нет? Моя думать твоя просто идиот.',
+  'Заткнись, урод, пока моя терпеть твоя чушь.',
+  'Твоя мерзкий тип, моя тошнить от твоя слова.',
+  'Отвали, паскуда, моя не хотеть слышать твоя вонь.',
+  'Твоя жалкий козёл, моя даже плевать лень на твоя.',
+  'Моя видеть много мразь, но твоя переплюнуть всех!',
+  'Свали, гнида, пока моя терпение не кончаться совсем.',
+  'Твоя тупица редкая, моя удивляться, как твоя жить вообще.',
+  'Заткнуть твоя рот, сволочь, никто твоя не спрашивать!',
+  'Твоя дно самое настоящее, моя даже брезговать.',
+  'Пошёл твоя в болото, гад мерзкий!',
+  'Твоя остолоп конченый, моя терять время на твоя.',
+  'Убирайся, зараза, пока моя не разозлиться по-настоящему.',
+  'Твоя моя раздражать до тошноты, кретин недоделанный.',
+  'Твоя ничтожество, моя даже смотреть на твоя противно.',
+  'Заглохни, паразит, твоя болтовня моя утомлять.',
+  'Твоя позорище ходячее, моя стыдно за твоя рядом стоять.',
+  'Проваливай, мразь, пока моя не показать, кто тут главный!',
+];
+
+// Tops up an already-deployed troll_phrases table with new seed phrases for
+// a category, checked by exact text match rather than a first-run-only
+// gate — so it's safe to call again on every restart without duplicating.
+function seedPhrasesIfMissing(category, phrases) {
+  const existing = new Set(
+    db.prepare('SELECT text FROM troll_phrases WHERE category = ?').all(category).map((r) => r.text)
   );
   const insertPhrase = db.prepare('INSERT INTO troll_phrases (category, text) VALUES (?, ?)');
-  for (const text of TEASE_EXTRA_PHRASES) {
-    if (!existingTease.has(text)) insertPhrase.run('tease', text);
+  for (const text of phrases) {
+    if (!existing.has(text)) insertPhrase.run(category, text);
   }
 }
+seedPhrasesIfMissing('tease', TEASE_EXTRA_PHRASES);
+seedPhrasesIfMissing('tease_harsh', TEASE_HARSH_PHRASES);
 
 console.log('Тролль-бот: схема готова.');
 
@@ -524,6 +560,15 @@ function noticeUser(userId, username, firstName) {
 
 function adjustAttitude(userId, delta) {
   db.prepare('UPDATE troll_relationships SET attitude = MAX(-100, MIN(100, attitude + ?)) WHERE user_id = ?').run(delta, userId);
+}
+
+// Reuses the same threshold already driving mischief escalation — below it,
+// every tease-style comeback (command, reply, or name-mention) pulls from
+// the harsher phrase pool instead of the regular one.
+function pickTeaseCategory(userId) {
+  const row = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(userId);
+  const attitude = row ? row.attitude : 0;
+  return attitude <= getSettingNumber('attitude_escalation_threshold') ? 'tease_harsh' : 'tease';
 }
 
 // --- Learned phrases ("сказать") ---
@@ -821,7 +866,7 @@ function performTease(chatId, from) {
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10), char_anger = MIN(100, char_anger + 8) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'tease');
   noticeUser(from.id, from.username, from.first_name);
-  sendCategoryReply(chatId, 'tease', 'Твоя дразнить моя?! Моя злиться!', actorName(from));
+  sendCategoryReply(chatId, pickTeaseCategory(from.id), 'Твоя дразнить моя?! Моя злиться!', actorName(from));
 }
 
 // малыш sees it as food (the joke the whole feature started from); the
@@ -1110,7 +1155,7 @@ bot.on('message', (msg) => {
   const repliedToTroll = !!(msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === botUserId);
   if (repliedToTroll && msg.text) {
     learnPhrase(msg.text, msg.from);
-    const comeback = pickPhrase('tease', 'Твоя дразнить моя?! Моя не любить это!');
+    const comeback = pickPhrase(pickTeaseCategory(msg.from.id), 'Твоя дразнить моя?! Моя не любить это!');
     bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
   }
 
@@ -1126,7 +1171,7 @@ bot.on('message', (msg) => {
   if (getSetting('paused') === '1' || isSilenced(state) || isNightNow()) return;
 
   if (addressedByName) {
-    const comeback = pickPhrase('tease', 'Твоя звать моя? Моя тут!');
+    const comeback = pickPhrase(pickTeaseCategory(msg.from.id), 'Твоя звать моя? Моя тут!');
     bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
     return;
   }
