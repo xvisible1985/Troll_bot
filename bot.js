@@ -259,6 +259,7 @@ const DEFAULT_SETTINGS = {
   satiety_suckle_gain: '20',
   hunger_action_interval_minutes: '30',
   attitude_feed_reject_delta: '-10',
+  learned_phrase_reply_chance: '8',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -407,6 +408,42 @@ if (phraseCount === 0) {
   }
 }
 
+// Extra comeback lines for /tease, added after the original 3-phrase seed
+// above — checked by exact text match (not a first-run-only gate like the
+// block above) so it tops up an already-deployed troll_phrases table
+// without duplicating on every restart.
+const TEASE_EXTRA_PHRASES = [
+  'Твоя обзываться, а моя не обижаться — моя тролль, моя привыкший!',
+  'Ха! Твоя слова как вода — моя даже не замечать!',
+  'Моя видеть много глупый люди, твоя не самый худший.',
+  'Твоя думать моя обидеться? Моя только смеяться!',
+  'Ой-ой, кто-то сегодня злой! Твоя завтракать лягушка?',
+  'Моя тролль под мостом — моя слышать похуже твоя слова.',
+  'Твоя стараться обидеть моя? Твоя слабо стараться.',
+  'Моя не обращать внимание на твоя писк.',
+  'Твоя злой язык, а моя толстый кожа!',
+  'Хех, твоя даже не знать, как по-настоящему обидеть моя.',
+  'Моя тролль, моя питаться такой слова на завтрак.',
+  'Твоя пытаться, а моя даже не почувствовать.',
+  'Моя видеть твоя насквозь — твоя просто грустный внутри.',
+  'Ого, какие громкие слова от такой маленький человек!',
+  'Твоя обзываться — моя записывать в книга жалоб.',
+  'Моя смеяться твоя попытка — попробуй ещё раз, а?',
+  'Твоя слова отскакивать от моя, как камешек от мост.',
+  'Моя тролль с толстый шкура — твоя слова только щекотать.',
+  'Ай, как обидно... нет, не обидно, моя просто зевать.',
+  'Твоя злиться — моя становиться только веселее!',
+];
+{
+  const existingTease = new Set(
+    db.prepare("SELECT text FROM troll_phrases WHERE category = 'tease'").all().map((r) => r.text)
+  );
+  const insertPhrase = db.prepare('INSERT INTO troll_phrases (category, text) VALUES (?, ?)');
+  for (const text of TEASE_EXTRA_PHRASES) {
+    if (!existingTease.has(text)) insertPhrase.run('tease', text);
+  }
+}
+
 console.log('Тролль-бот: схема готова.');
 
 // --- Settings ---
@@ -498,11 +535,6 @@ function learnPhrase(text, from) {
     'INSERT INTO troll_learned_phrases (text, taught_by_user_id, taught_by_username) VALUES (?, ?, ?)'
   ).run(text, from.id, from.username || from.first_name);
 }
-
-// Chance, per qualifying ordinary chat message, that the troll parrots a
-// random previously-learned phrase back as a reply — separate from (and
-// mutually exclusive with) the regular mischief trigger.
-const LEARNED_PHRASE_REPLY_CHANCE = 0.08;
 
 // --- Growth ---
 const STAGE_NAMES = { 1: 'малыш', 2: 'подросток', 3: 'молодой', 4: 'взрослый' };
@@ -1086,7 +1118,7 @@ bot.on('message', (msg) => {
   const trigger = getSettingNumber('mischief_message_trigger');
   if (newCount % trigger === 0) {
     triggerMischief(state.chat_id);
-  } else if (!repliedToTroll && Math.random() < LEARNED_PHRASE_REPLY_CHANCE) {
+  } else if (!repliedToTroll && Math.random() < getSettingNumber('learned_phrase_reply_chance') / 100) {
     const learned = db.prepare('SELECT text FROM troll_learned_phrases ORDER BY RANDOM() LIMIT 1').get();
     if (learned) bot.sendMessage(msg.chat.id, learned.text, { reply_to_message_id: msg.message_id }).catch(() => {});
   }

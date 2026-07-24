@@ -205,6 +205,34 @@ api.get('/stickers/:id/image', async (req, res) => {
   }
 });
 
+// Phrases the troll picked up via /teach or by being replied to, plus
+// whatever the admin adds by hand here — same pool bot.js's message
+// handler draws from at random when replying to ordinary chat messages.
+api.get('/learned-phrases', (req, res) => {
+  const rows = db.prepare(
+    'SELECT id, text, taught_by_username, created_at FROM troll_learned_phrases ORDER BY created_at DESC'
+  ).all();
+  res.json(rows.map((r) => ({
+    id: r.id,
+    text: r.text,
+    taughtByUsername: r.taught_by_username,
+    createdAt: r.created_at,
+  })));
+});
+
+api.post('/learned-phrases', (req, res) => {
+  const { text } = req.body || {};
+  if (!text) return res.status(400).json({ error: 'text required' });
+  const info = db.prepare('INSERT INTO troll_learned_phrases (text) VALUES (?)').run(text);
+  res.json({ id: info.lastInsertRowid, text });
+});
+
+api.delete('/learned-phrases/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM troll_learned_phrases WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true });
+});
+
 // Single portrait file for the /troll image card (card.js reads the same
 // PORTRAIT_PATH). Overwritten in place on each upload — no history needed.
 api.post('/troll-portrait', upload.single('portrait'), (req, res) => {

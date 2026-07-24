@@ -342,6 +342,78 @@ async function loadPhrases() {
   });
 }
 
+async function loadLearnedPhrases() {
+  const [settings, phrases] = await Promise.all([
+    apiFetch('/settings'),
+    apiFetch('/learned-phrases'),
+  ]);
+  const panel = document.getElementById('panel-learned');
+  const chance = Number(settings.learned_phrase_reply_chance);
+
+  const items = phrases.map((p) => `
+    <div class="phrase-item" data-id="${p.id}">
+      <span class="text">${p.text}${p.taughtByUsername ? ` <span style="color:var(--text-muted); font-size:11px;">— ${p.taughtByUsername}</span>` : ' <span style="color:var(--text-muted); font-size:11px;">— добавлено админом</span>'}</span>
+      <button class="icon-btn btn-del">✕</button>
+    </div>
+  `).join('');
+
+  panel.innerHTML = `
+    <div class="card">
+      <p class="eyebrow">Частота использования</p>
+      <div class="setting-row">
+        <div class="setting-head">
+          <span class="setting-name">Шанс ответить выученной фразой, %</span>
+          <span class="setting-value mono" id="learned-chance-out">${chance}</span>
+        </div>
+        <input type="range" min="0" max="100" step="1" value="${chance}" id="learned-chance-input">
+      </div>
+    </div>
+    <div class="card">
+      <p class="eyebrow">Добавить фразу вручную</p>
+      <div class="add-phrase-row">
+        <input type="text" id="learned-add-text" placeholder="Новая фраза">
+        <button class="btn" id="learned-add-btn">+</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="eyebrow">Запомненные фразы (${phrases.length})</p>
+      ${items || '<p style="color:var(--text-muted); font-size:13px; margin:0;">Тролль пока ничего не запомнил.</p>'}
+    </div>
+  `;
+
+  const chanceInput = document.getElementById('learned-chance-input');
+  chanceInput.addEventListener('input', () => {
+    document.getElementById('learned-chance-out').textContent = chanceInput.value;
+  });
+  chanceInput.addEventListener('change', async () => {
+    await apiFetch('/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ learned_phrase_reply_chance: chanceInput.value }),
+    });
+  });
+
+  document.getElementById('learned-add-btn').addEventListener('click', async () => {
+    const input = document.getElementById('learned-add-text');
+    const text = input.value.trim();
+    if (!text) return;
+    await apiFetch('/learned-phrases', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    loadLearnedPhrases();
+  });
+
+  panel.querySelectorAll('.btn-del').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.closest('.phrase-item').dataset.id;
+      await apiFetch('/learned-phrases/' + id, { method: 'DELETE' });
+      loadLearnedPhrases();
+    });
+  });
+}
+
 async function loadRelationships() {
   const people = await apiFetch('/relationships');
   const panel = document.getElementById('panel-relationships');
@@ -557,6 +629,7 @@ async function init() {
     { name: 'settings', panelId: 'panel-settings', fn: loadSettings },
     { name: 'botProfile', panelId: 'panel-settings', fn: loadBotProfile },
     { name: 'phrases', panelId: 'panel-phrases', fn: loadPhrases },
+    { name: 'learnedPhrases', panelId: 'panel-learned', fn: loadLearnedPhrases },
     { name: 'relationships', panelId: 'panel-relationships', fn: loadRelationships },
     { name: 'say', panelId: 'panel-say', fn: async () => renderSay() },
     { name: 'stickers', panelId: 'panel-stickers', fn: loadStickers },

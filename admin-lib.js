@@ -10,7 +10,7 @@ const DEFAULT_SETTINGS_KEYS = [
   'neglect_threshold_hours', 'paused', 'attitude_play_delta', 'attitude_feed_delta',
   'attitude_kick_delta', 'attitude_escalation_threshold',
   'satiety_decay_per_hour', 'satiety_feed_gain', 'satiety_suckle_gain', 'hunger_action_interval_minutes',
-  'attitude_feed_reject_delta',
+  'attitude_feed_reject_delta', 'learned_phrase_reply_chance',
 ];
 
 function getSetting(key) {
