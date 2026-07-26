@@ -398,10 +398,11 @@ const PHRASE_SEED = {
   ],
 };
 
-// tease_harsh isn't part of PHRASE_SEED (seeded separately below, since it
-// didn't exist at first-run time for already-deployed trolls) — added here
-// too so /troll_phrase_add and /troll_phrases still recognize it.
-const PHRASE_CATEGORIES = [...Object.keys(PHRASE_SEED), 'tease_harsh'];
+// tease_harsh/tease_neutral/tease_adoring aren't part of PHRASE_SEED (seeded
+// separately below, since they didn't exist at first-run time for
+// already-deployed trolls) — added here too so /troll_phrase_add and
+// /troll_phrases still recognize them.
+const PHRASE_CATEGORIES = [...Object.keys(PHRASE_SEED), 'tease_harsh', 'tease_neutral', 'tease_adoring'];
 
 const phraseCount = db.prepare('SELECT COUNT(*) AS n FROM troll_phrases').get().n;
 if (phraseCount === 0) {
@@ -465,6 +466,56 @@ const TEASE_HARSH_PHRASES = [
   'Проваливай, мразь, пока моя не показать, кто тут главный!',
 ];
 
+// Attitude 0-70: plain, matter-of-fact acknowledgment — not hostile, not
+// affectionate, just a neutral "yes, you're there" response.
+const TEASE_NEUTRAL_PHRASES = [
+  'Моя видеть твоя. Твоя тут, окей.',
+  'Твоя звать моя? Моя слушать.',
+  'Моя нормально относиться к твоя.',
+  'Твоя тут — моя не против.',
+  'Ну, привет, твоя. Моя занят, но ладно.',
+  'Твоя обращаться к моя — моя отвечать, как обычно.',
+  'Моя видеть твоя каждый день, твоя нормальный.',
+  'Твоя не самый плохой, но и не самый хороший.',
+  'Ладно, твоя, моя слушать, что твоя хотеть.',
+  'Моя относиться к твоя спокойно, без претензий.',
+  'Твоя тут снова. Моя заметить.',
+  'Хорошо, твоя, моя дать ответ, раз твоя спрашивать.',
+  'Моя не злиться и не радоваться — просто твоя тут.',
+  'Твоя обычный человек для моя, ничего особенного.',
+  'Моя отвечать твоя, потому что твоя вежливо спросить.',
+  'Ну что, твоя, чего хотеть на этот раз?',
+  'Моя знать твоя, твоя знать моя — норм так.',
+  'Твоя не плохой сосед под мост, если честно.',
+  'Моя кивать твоя — обычное дело.',
+  'Твоя тут, моя тут — всё нормально.',
+];
+
+// Attitude 70-100: warm, respectful, openly adoring — the troll's favorite
+// people get treated like it.
+const TEASE_ADORING_PHRASES = [
+  'Ах, твоя! Моя самый любимый человек говорить с моя!',
+  'Твоя голос моя радовать сердце! Моя обожать твоя!',
+  'Моя счастливый, когда твоя рядом! Твоя лучший!',
+  'О, твоя! Моя специально ждать твоя слова!',
+  'Твоя самый добрый друг моя во всём мире!',
+  'Моя мурчать от радость — это же твоя пришёл!',
+  'Твоя всегда моя радовать, моя обожать каждый твоя слово!',
+  'Ах, как хорошо, что твоя снова тут! Моя скучать!',
+  'Моя гордиться дружба с твоя, честное слово!',
+  'Твоя самый прекрасный человек, моя знать!',
+  'Моя слушать твоя с восхищение, твоя такой мудрый!',
+  'Твоя приходить — и моя весь день становиться лучше!',
+  'О, обожаемый твоя! Моя всегда рада твоя видеть!',
+  'Моя доверять твоя больше всех под этот мост!',
+  'Твоя просто чудо, моя не мочь на твоя нарадоваться!',
+  'Моя благодарный судьба за твоя дружба!',
+  'Твоя моя любимчик, моя это не скрывать!',
+  'Ах, твоя тут! Моя аж подпрыгивать от счастье!',
+  'Твоя заслуживать самый лучший в мире тролль-друг — это моя!',
+  'Моя обожать твоя всем моя тролль-сердце!',
+];
+
 // Tops up an already-deployed troll_phrases table with new seed phrases for
 // a category, checked by exact text match rather than a first-run-only
 // gate — so it's safe to call again on every restart without duplicating.
@@ -479,6 +530,8 @@ function seedPhrasesIfMissing(category, phrases) {
 }
 seedPhrasesIfMissing('tease', TEASE_EXTRA_PHRASES);
 seedPhrasesIfMissing('tease_harsh', TEASE_HARSH_PHRASES);
+seedPhrasesIfMissing('tease_neutral', TEASE_NEUTRAL_PHRASES);
+seedPhrasesIfMissing('tease_adoring', TEASE_ADORING_PHRASES);
 
 console.log('Тролль-бот: схема готова.');
 
@@ -562,13 +615,17 @@ function adjustAttitude(userId, delta) {
   db.prepare('UPDATE troll_relationships SET attitude = MAX(-100, MIN(100, attitude + ?)) WHERE user_id = ?').run(delta, userId);
 }
 
-// Reuses the same threshold already driving mischief escalation — below it,
-// every tease-style comeback (command, reply, or name-mention) pulls from
-// the harsher phrase pool instead of the regular one.
+// Four tiers by relationship, used uniformly by /tease, the reply-to-troll
+// comeback, and the addressed-by-name comeback: harsh (<= escalation
+// threshold), regular tease (threshold..0), neutral (0..70), adoring
+// (70-100) — even a /tease from someone the troll adores lands soft.
 function pickTeaseCategory(userId) {
   const row = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(userId);
   const attitude = row ? row.attitude : 0;
-  return attitude <= getSettingNumber('attitude_escalation_threshold') ? 'tease_harsh' : 'tease';
+  if (attitude >= 70) return 'tease_adoring';
+  if (attitude >= 0) return 'tease_neutral';
+  if (attitude <= getSettingNumber('attitude_escalation_threshold')) return 'tease_harsh';
+  return 'tease';
 }
 
 // --- Learned phrases ("сказать") ---
