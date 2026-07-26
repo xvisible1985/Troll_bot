@@ -894,7 +894,7 @@ function performKick(chatId, from) {
   // button/command still shows for them, it just no-ops with a message.
   const rel = db.prepare('SELECT kick_blocked_until FROM troll_relationships WHERE user_id = ?').get(from.id);
   if (rel && rel.kick_blocked_until && rel.kick_blocked_until > now) {
-    bot.sendMessage(chatId, `${actorName(from)}, твоя "Пнуть" временно заблокирован — тролль тебя запомнил!`).catch(() => {});
+    bot.sendMessage(chatId, `${actorName(from)}, тролль прячется от тебя! Попробуй позже.`).catch(() => {});
     return;
   }
 
