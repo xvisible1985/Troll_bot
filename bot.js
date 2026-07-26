@@ -184,6 +184,12 @@ for (const column of ['char_appetite', 'char_playfulness', 'char_anger', 'char_l
     db.exec(`ALTER TABLE troll_state ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
   } catch {}
 }
+// Global kick lockout — set when the troll successfully hides after being
+// kicked twice within an hour; while in the future, /kick does nothing for
+// anyone (see performKick).
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN kick_locked_until INTEGER');
+} catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -213,9 +219,13 @@ db.exec(`
     first_name TEXT,
     attitude INTEGER NOT NULL DEFAULT 0,
     first_seen_at INTEGER DEFAULT (strftime('%s','now')),
-    last_seen_at INTEGER
+    last_seen_at INTEGER,
+    kick_blocked_until INTEGER
   )
 `);
+try {
+  db.exec('ALTER TABLE troll_relationships ADD COLUMN kick_blocked_until INTEGER');
+} catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_stickers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -247,8 +257,10 @@ const DEFAULT_SETTINGS = {
   mischief_interval_hours: '1',
   mischief_message_trigger: '50',
   health_decay_per_hour: '2',
-  health_regen_per_hour: '1',
-  neglect_threshold_hours: '6',
+  health_regen_baby: '1',
+  health_regen_young: '2',
+  health_regen_adult: '5',
+  health_regen_old: '3',
   paused: '0',
   attitude_play_delta: '5',
   attitude_feed_delta: '8',
@@ -639,7 +651,13 @@ function learnPhrase(text, from) {
 }
 
 // --- Growth ---
-const STAGE_NAMES = { 1: 'малыш', 2: 'подросток', 3: 'молодой', 4: 'взрослый' };
+const STAGE_NAMES = { 1: 'малыш', 2: 'молодой', 3: 'взрослый', 4: 'старый' };
+const STAGE_HEALTH_REGEN_KEYS = {
+  1: 'health_regen_baby',
+  2: 'health_regen_young',
+  3: 'health_regen_adult',
+  4: 'health_regen_old',
+};
 
 function getWeight(feedCount) {
   const capped = Math.min(feedCount, 90);
@@ -860,12 +878,56 @@ function performPlay(chatId, from) {
 function performKick(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
-  const silencedUntil = Math.floor(Date.now() / 1000) + 60 * 60;
-  db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), silenced_until = ? WHERE id = 1').run(silencedUntil);
-  logAction(from.id, from.username || from.first_name, 'kick');
+  const now = Math.floor(Date.now() / 1000);
   noticeUser(from.id, from.username, from.first_name);
+
+  // Global hide lockout: troll successfully hid after 2 kicks within an
+  // hour (see below) — /kick does nothing for anyone until it expires.
+  if (state.kick_locked_until && state.kick_locked_until > now) {
+    bot.sendMessage(chatId, 'Тролль спрятался и не даётся пнуть! Попробуй позже.').catch(() => {});
+    return;
+  }
+
+  // Per-user cooldown: this specific attacker dodged-and-got-blocked
+  // recently (see below) — Telegram can't hide an inline button for just
+  // one person in a shared message, so this is enforced functionally: the
+  // button/command still shows for them, it just no-ops with a message.
+  const rel = db.prepare('SELECT kick_blocked_until FROM troll_relationships WHERE user_id = ?').get(from.id);
+  if (rel && rel.kick_blocked_until && rel.kick_blocked_until > now) {
+    bot.sendMessage(chatId, `${actorName(from)}, твоя "Пнуть" временно заблокирован — тролль тебя запомнил!`).catch(() => {});
+    return;
+  }
+
+  const dodgeRoll = rollTrollTryResult(`увернуться от пинка ${actorName(from)}`);
+  bot.sendMessage(chatId, dodgeRoll.text).catch(() => {});
+
+  if (dodgeRoll.success) {
+    // Dodged: no mood/health hit, but the attempt itself still sours the
+    // relationship, earns a comeback, and costs the attacker their kick
+    // button for an hour.
+    adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
+    sendCategoryReply(chatId, pickTeaseCategory(from.id), 'Твоя не попасть в моя!', actorName(from));
+    db.prepare('UPDATE troll_relationships SET kick_blocked_until = ? WHERE user_id = ?').run(now + 3600, from.id);
+    return;
+  }
+
+  const silencedUntil = now + 60 * 60;
+  db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), health = MAX(0, health - 5), silenced_until = ? WHERE id = 1').run(silencedUntil);
+  logAction(from.id, from.username || from.first_name, 'kick');
   adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
   sendCategoryReply(chatId, 'kick', 'Твоя злой! Моя обижаться!', actorName(from));
+
+  // 2 landed kicks within an hour: the troll tries to hide from everyone.
+  const recentKicks = db.prepare(
+    "SELECT COUNT(*) AS n FROM troll_actions WHERE action = 'kick' AND created_at >= ?"
+  ).get(now - 3600).n;
+  if (recentKicks >= 2) {
+    const hideRoll = rollTrollTryResult('спрятаться от всех пинков');
+    bot.sendMessage(chatId, hideRoll.text).catch(() => {});
+    if (hideRoll.success) {
+      db.prepare('UPDATE troll_state SET kick_locked_until = ? WHERE id = 1').run(now + 3600);
+    }
+  }
 }
 
 function performFeed(chatId, from) {
@@ -1155,12 +1217,12 @@ function backgroundTick() {
   const now = Math.floor(Date.now() / 1000);
 
   if (!state.last_health_tick_at || now - state.last_health_tick_at >= 3600) {
-    const neglectHours = getSettingNumber('neglect_threshold_hours');
     const decay = getSettingNumber('health_decay_per_hour');
-    const regen = getSettingNumber('health_regen_per_hour');
+    const regen = getSettingNumber(STAGE_HEALTH_REGEN_KEYS[state.stage] || 'health_regen_baby');
     const satietyDecay = getSettingNumber('satiety_decay_per_hour');
-    const hoursSinceFed = state.last_fed_at ? (now - state.last_fed_at) / 3600 : Infinity;
-    if (hoursSinceFed > neglectHours) {
+    // Health only decays from being hungry (satiety < 30) now — no more
+    // separate "hasn't been fed in N hours" neglect timer.
+    if (state.satiety < 30) {
       db.prepare('UPDATE troll_state SET health = MAX(0, health - ?), satiety = MAX(0, satiety - ?), last_health_tick_at = ? WHERE id = 1').run(decay, satietyDecay, now);
     } else {
       db.prepare('UPDATE troll_state SET health = MIN(100, health + ?), satiety = MAX(0, satiety - ?), last_health_tick_at = ? WHERE id = 1').run(regen, satietyDecay, now);
@@ -1371,7 +1433,7 @@ const TROLL_HELP_PUBLIC = [
   '/troll_character — характер тролля (аппетит, игривость, злость, похоть, вредность)',
   '/play — поиграть с тролем (+настроение, +игривость, -злость)',
   '/feed — покормить тролля (+здоровье, +сытость, +настроение; от 90 до 99 сытости — переедает и это растит аппетит; при 100 — кинет еду обратно)',
-  '/kick — пнуть тролля (-настроение, замолкает на час)',
+  '/kick — пнуть тролля (тролль может увернуться — тогда огрызнётся в ответ и заблокирует тебе кнопку "Пнуть" на час; если попал — -настроение, -здоровье, замолкает на час; после 2 удачных пинков за час тролль может спрятаться и заблокировать пинки для всех)',
   '/tease — подразнить тролля (-настроение, +злость)',
   '/boobs — показать тролю сиську (+похоть, реакция зависит от стадии роста)',
   '/teach <фраза> — научить тролля фразе; он потом будет иногда повторять её случайным людям (можно и просто ответить на любое сообщение тролля)',

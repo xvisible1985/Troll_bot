@@ -17,9 +17,9 @@ async function apiFetch(path, options = {}) {
 
 const STAGE_OPTIONS = [
   { value: 1, label: 'малыш' },
-  { value: 2, label: 'подросток' },
-  { value: 3, label: 'молодой' },
-  { value: 4, label: 'взрослый' },
+  { value: 2, label: 'молодой' },
+  { value: 3, label: 'взрослый' },
+  { value: 4, label: 'старый' },
 ];
 
 function switchTab(tab) {
@@ -36,9 +36,11 @@ const SETTING_LABELS = {
   mischief_interval_hours: 'Интервал шалости, ч',
   sleep_start: 'Засыпает в (час)',
   sleep_end: 'Просыпается в (час)',
-  neglect_threshold_hours: 'Забвение до упадка, ч',
-  health_decay_per_hour: 'Упадок здоровья/ч',
-  health_regen_per_hour: 'Восстановление здоровья/ч',
+  health_decay_per_hour: 'Упадок здоровья/ч (при голоде < 30)',
+  health_regen_baby: 'Восстановление здоровья/ч: малыш',
+  health_regen_young: 'Восстановление здоровья/ч: молодой',
+  health_regen_adult: 'Восстановление здоровья/ч: взрослый',
+  health_regen_old: 'Восстановление здоровья/ч: старый',
   attitude_play_delta: 'Отношение: /play',
   attitude_feed_delta: 'Отношение: /feed',
   attitude_kick_delta: 'Отношение: /kick',
@@ -55,9 +57,11 @@ const SETTING_RANGES = {
   mischief_interval_hours: [1, 12, 1],
   sleep_start: [0, 23, 1],
   sleep_end: [0, 23, 1],
-  neglect_threshold_hours: [1, 24, 1],
   health_decay_per_hour: [0, 10, 1],
-  health_regen_per_hour: [0, 10, 1],
+  health_regen_baby: [0, 10, 1],
+  health_regen_young: [0, 10, 1],
+  health_regen_adult: [0, 10, 1],
+  health_regen_old: [0, 10, 1],
   attitude_play_delta: [0, 20, 1],
   attitude_feed_delta: [0, 20, 1],
   attitude_kick_delta: [-40, 0, 1],
