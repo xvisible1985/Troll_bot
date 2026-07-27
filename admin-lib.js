@@ -14,7 +14,7 @@ const DEFAULT_SETTINGS_KEYS = [
   'attitude_feed_reject_delta', 'learned_phrase_reply_chance',
   'weight_gain_per_feed', 'weight_loss_per_poop', 'weight_loss_per_pee',
   'eat_action_interval_minutes', 'poop_action_interval_minutes', 'pee_action_interval_minutes',
-  'poop_mood_gain',
+  'poop_mood_gain', 'command_cooldown_seconds', 'attitude_fas_delta',
 ];
 
 function getSetting(key) {

@@ -332,6 +332,8 @@ const DEFAULT_SETTINGS = {
   poop_action_interval_minutes: '90',
   pee_action_interval_minutes: '60',
   poop_mood_gain: '8',
+  command_cooldown_seconds: '3',
+  attitude_fas_delta: '-5',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -914,6 +916,20 @@ function actorName(from) {
   return from.username ? `@${from.username}` : from.first_name;
 }
 
+// Per-user, per-command anti-spam — in-memory only (a rate limiter doesn't
+// need to survive a restart). Silently drops the repeat instead of
+// replying "not so fast", since a bot reply to spam is itself more spam.
+const commandCooldowns = new Map();
+
+function checkCommandCooldown(userId, command) {
+  const key = `${userId}:${command}`;
+  const cooldownMs = getSettingNumber('command_cooldown_seconds') * 1000;
+  const last = commandCooldowns.get(key);
+  if (last && Date.now() - last < cooldownMs) return false;
+  commandCooldowns.set(key, Date.now());
+  return true;
+}
+
 // Note: isSilenced (the 1-hour window after /kick) intentionally does NOT
 // gate these three — being "silenced" only suppresses autonomous mischief
 // (checked separately in backgroundTick and the message handler), not direct
@@ -922,6 +938,7 @@ function actorName(from) {
 function performPlay(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
+  if (!checkCommandCooldown(from.id, 'play')) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
     sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
@@ -937,6 +954,7 @@ function performPlay(chatId, from) {
 function performKick(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
+  if (!checkCommandCooldown(from.id, 'kick')) return;
   const now = Math.floor(Date.now() / 1000);
   noticeUser(from.id, from.username, from.first_name);
 
@@ -1009,6 +1027,7 @@ function applyEatStats(overeating) {
 function performFeed(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
+  if (!checkCommandCooldown(from.id, 'feed')) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
     sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
@@ -1048,6 +1067,7 @@ function performFeed(chatId, from) {
 function performTease(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
+  if (!checkCommandCooldown(from.id, 'tease')) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
     sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
@@ -1067,6 +1087,7 @@ const BOOBS_CATEGORY_BY_STAGE = { 1: 'boobs_baby', 2: 'boobs_teen', 3: 'boobs_yo
 function performBoobs(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
+  if (!checkCommandCooldown(from.id, 'boobs')) return;
   const category = BOOBS_CATEGORY_BY_STAGE[state.stage] || 'boobs_baby';
   db.prepare('UPDATE troll_state SET char_lust = MIN(100, char_lust + 8) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'boobs');
@@ -1099,10 +1120,11 @@ bot.onText(/\/boobs\b/, (msg) => {
 bot.onText(/\/teach ([\s\S]+)/, (msg, match) => {
   const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
   if (!state || msg.chat.id !== state.chat_id) return;
+  if (!checkCommandCooldown(msg.from.id, 'teach')) return;
   const text = match[1].trim();
   if (!text) return;
   learnPhrase(text, msg.from);
-  bot.sendMessage(msg.chat.id, `Тролль запомнил: "${text}"`).catch(() => {});
+  bot.sendMessage(msg.chat.id, `${actorName(msg.from)} научил тролля фразе: "${text}"`).catch(() => {});
 });
 
 // "Тролль Фас <@цель>" / "тролль фас" as a reply — no slash needed, any
@@ -1115,6 +1137,7 @@ const TROLL_FAS_REGEX = /(?:^|\s)тролл?ь\s+фас(?:\s+@?(\S+))?/i;
 bot.onText(TROLL_FAS_REGEX, async (msg, match) => {
   const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
   if (!state || msg.chat.id !== state.chat_id) return;
+  if (!checkCommandCooldown(msg.from.id, 'fas')) return;
 
   if (pickTeaseCategory(msg.from.id) !== 'tease_adoring') {
     bot.sendMessage(
@@ -1156,8 +1179,11 @@ bot.onText(TROLL_FAS_REGEX, async (msg, match) => {
 
   const now = Math.floor(Date.now() / 1000);
   db.prepare('UPDATE troll_state SET troll_fas_until = ?, troll_fas_target_user_id = ? WHERE id = 1').run(now + 30 * 60, target.userId);
+  // Using the troll like an attack dog costs a little of its fondness even
+  // from someone it adores.
+  adjustAttitude(msg.from.id, getSettingNumber('attitude_fas_delta'));
   const targetName = target.username ? `@${target.username}` : target.firstName;
-  bot.sendMessage(msg.chat.id, `🐕 ФАС! Тролль спущен на ${targetName} — 30 минут не будет покоя!`).catch(() => {});
+  bot.sendMessage(msg.chat.id, `🐕 ${actorName(msg.from)} скомандовал троллю "Фас!" на ${targetName} — 30 минут не будет покоя!`).catch(() => {});
 });
 
 // Buttons on the /troll status card (callback_data-type inline buttons work
@@ -1502,7 +1528,7 @@ bot.on('message', (msg) => {
   // line instead of a dry confirmation. Runs regardless of paused/silenced/
   // night, since it's the user acting, not the troll.
   const repliedToTroll = !!(msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === botUserId);
-  if (repliedToTroll && msg.text) {
+  if (repliedToTroll && msg.text && checkCommandCooldown(msg.from.id, 'teach')) {
     learnPhrase(msg.text, msg.from);
     const comeback = pickPhrase(pickTeaseCategory(msg.from.id), 'Твоя дразнить моя?! Моя не любить это!');
     bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});

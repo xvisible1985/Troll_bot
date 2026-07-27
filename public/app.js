@@ -57,6 +57,8 @@ const SETTING_LABELS = {
   poop_action_interval_minutes: 'Интервал какашки, мин',
   pee_action_interval_minutes: 'Интервал пописа, мин',
   poop_mood_gain: 'Настроение от какашки',
+  command_cooldown_seconds: 'Антиспам-кулдаун команд, сек',
+  attitude_fas_delta: 'Отношение: команда "Фас"',
 };
 const SETTING_RANGES = {
   naughtiness: [1, 10, 1],
@@ -85,6 +87,8 @@ const SETTING_RANGES = {
   poop_action_interval_minutes: [15, 240, 15],
   pee_action_interval_minutes: [15, 240, 15],
   poop_mood_gain: [0, 20, 1],
+  command_cooldown_seconds: [1, 30, 1],
+  attitude_fas_delta: [-20, 0, 1],
 };
 
 async function loadStatus() {
