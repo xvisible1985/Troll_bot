@@ -1513,10 +1513,10 @@ function triggerPoop(chatId) {
     'UPDATE troll_state SET mood = MIN(100, mood + ?), weight = MAX(?, weight - ?), poop_game_ends_at = ? WHERE id = 1'
   ).run(moodGain, WEIGHT_FLOOR, weightLoss, gameEndsAt);
   poopGameCandidates.clear();
-  bot.sendMessage(
-    chatId,
-    '💩 Тролль накакал и заминировал окрестности под мостом! Целый час рискует вступить в какашку любой, кто напишет в чат...'
-  ).catch(() => {});
+  // Pure in-character flavor — deliberately doesn't mention the "whoever
+  // writes next becomes a candidate" mechanic, so it reads as a surprise
+  // later rather than a warning to stay quiet right now.
+  bot.sendMessage(chatId, '💩 Моя покакать под мостом! Уф, стало легче...').catch(() => {});
 }
 
 // Called every backgroundTick regardless of paused/silenced — a running
@@ -1529,7 +1529,7 @@ function resolvePoopGameIfDue(state, now) {
   if (candidates.length === 0) return;
   const loser = candidates[Math.floor(Math.random() * candidates.length)];
   const name = loser.username ? `@${loser.username}` : loser.firstName;
-  bot.sendMessage(state.chat_id, `💩 ${name} вступил в какашку тролля! Теперь от твоя вонять целый час...`).catch(() => {});
+  bot.sendMessage(state.chat_id, `💩 Ой-ой, ${name} вступить в моя какашка! Твоя теперь вонять целый час...`).catch(() => {});
   markSmelly(loser.userId, 3600);
 }
 
@@ -1541,10 +1541,10 @@ function triggerPee(chatId) {
   if (recentMessages.length > 0 && Math.random() < 0.5) {
     const targetInfo = pickMischiefTarget();
     const target = getMentionName(targetInfo.entry);
-    bot.sendMessage(chatId, `💦 Тролль метко пометил территорию, заодно окатив ${target}!`).catch(() => {});
+    bot.sendMessage(chatId, `💦 Моя метко пометить территория, заодно окатить ${target}!`).catch(() => {});
     markSmelly(targetInfo.entry.userId, 3600);
   } else {
-    bot.sendMessage(chatId, '💦 Тролль пометил территорию под мостом.').catch(() => {});
+    bot.sendMessage(chatId, '💦 Моя пометить территория под мостом.').catch(() => {});
   }
 }
 
@@ -1732,7 +1732,8 @@ bot.onText(/\/troll_reset\b/, (msg) => {
   if (!isAdminChat(msg)) return;
   db.exec('DELETE FROM troll_state');
   db.exec('DELETE FROM troll_actions');
-  bot.sendMessage(msg.chat.id, 'Тролль сброшен. Используй /troll_here в публичном чате, чтобы призвать нового.');
+  db.exec('DELETE FROM troll_learned_phrases');
+  bot.sendMessage(msg.chat.id, 'Тролль сброшен, выученные фразы стёрты. Используй /troll_here в публичном чате, чтобы призвать нового.');
 });
 
 bot.onText(/\/troll_poop\b/, (msg) => {
@@ -1856,7 +1857,7 @@ const TROLL_HELP_ADMIN = [
   '/troll_settings — текущие настройки',
   '/troll_set <ключ> <значение> — изменить настройку',
   '/troll_pause / /troll_resume — выключить/включить шалости',
-  '/troll_reset — полный сброс тролля',
+  '/troll_reset — полный сброс тролля (включая выученные фразы)',
   '/troll_poop — заставить тролля покакать прямо сейчас (мини-игра)',
   '/troll_pee — заставить тролля пописать прямо сейчас',
   '/troll_say <текст> — сказать текст от лица тролля тролльским акцентом',
