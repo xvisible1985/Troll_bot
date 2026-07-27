@@ -285,6 +285,28 @@ async function loadBotProfile() {
   });
 }
 
+// Categories ending in one of these suffixes belong to that specific
+// growth stage (see bot.js's STAGE_SUFFIXES/pickPhraseForStage); anything
+// without a suffix is a universal category used as the fallback for every
+// stage that has no override yet — so it stays visible under every filter.
+const STAGE_CATEGORY_SUFFIXES = { _baby: 'малыш', _young: 'молодой', _adult: 'взрослый', _old: 'старый' };
+const PHRASE_STAGE_FILTERS = [
+  { value: 'all', label: 'Все' },
+  { value: '_baby', label: 'Малыш' },
+  { value: '_young', label: 'Молодой' },
+  { value: '_adult', label: 'Взрослый' },
+  { value: '_old', label: 'Старый' },
+];
+let phrasesStageFilter = 'all';
+
+function categoryStageSuffix(category) {
+  // boobs_* predates this suffix convention and maps stages differently
+  // (boobs_young is stage 3, not stage 2) — tagging it here would show the
+  // wrong stage, so it's excluded and just always shown instead.
+  if (category.startsWith('boobs_')) return null;
+  return Object.keys(STAGE_CATEGORY_SUFFIXES).find((s) => category.endsWith(s)) || null;
+}
+
 async function loadPhrases() {
   const phrases = await apiFetch('/phrases');
   const byCategory = {};
@@ -292,7 +314,14 @@ async function loadPhrases() {
     (byCategory[row.category] = byCategory[row.category] || []).push(row);
   }
   const panel = document.getElementById('panel-phrases');
-  const categoryBlocks = Object.keys(byCategory).sort().map((category) => {
+  const visibleCategories = Object.keys(byCategory).filter((category) => {
+    if (phrasesStageFilter === 'all') return true;
+    const suffix = categoryStageSuffix(category);
+    return suffix === null || suffix === phrasesStageFilter;
+  });
+  const categoryBlocks = visibleCategories.sort().map((category) => {
+    const suffix = categoryStageSuffix(category);
+    const stageTag = suffix ? `<span class="count" style="background:var(--accent); color:var(--accent-contrast);">${STAGE_CATEGORY_SUFFIXES[suffix]}</span>` : '';
     const items = byCategory[category].map((row) => `
       <div class="phrase-item" data-id="${row.id}">
         <span class="text">${row.text}</span>
@@ -305,6 +334,7 @@ async function loadPhrases() {
         <div class="category-head">
           <span class="name">${category}</span>
           <span style="display:flex; align-items:center; gap:8px;">
+            ${stageTag}
             <span class="count">${byCategory[category].length}</span>
             <span class="chevron">›</span>
           </span>
@@ -319,7 +349,21 @@ async function loadPhrases() {
       </div>
     `;
   }).join('');
-  panel.innerHTML = `<div class="card">${categoryBlocks}</div>`;
+  const filterRow = `
+    <div class="card">
+      <p class="eyebrow">Показать категории для стадии</p>
+      <select id="phrases-stage-filter" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-sunken); color:var(--text); font-size:13px;">
+        ${PHRASE_STAGE_FILTERS.map((f) => `<option value="${f.value}" ${f.value === phrasesStageFilter ? 'selected' : ''}>${f.label}</option>`).join('')}
+      </select>
+      <p style="font-size:11.5px; color:var(--text-muted); margin:8px 0 0;">Категории без метки стадии — общие, используются как запасной вариант для любой стадии, у которой ещё нет своих фраз.</p>
+    </div>
+  `;
+  panel.innerHTML = filterRow + `<div class="card">${categoryBlocks}</div>`;
+
+  document.getElementById('phrases-stage-filter').addEventListener('change', (e) => {
+    phrasesStageFilter = e.target.value;
+    loadPhrases();
+  });
 
   panel.querySelectorAll('.category-head').forEach((head) => {
     head.addEventListener('click', () => head.parentElement.classList.toggle('open'));

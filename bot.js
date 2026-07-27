@@ -597,6 +597,84 @@ const TEASE_ADORING_PHRASES = [
   'Моя обожать твоя всем моя тролль-сердце!',
 ];
 
+// Per-stage variants for the mild-tease and harsh-insult pools (see
+// STAGE_SUFFIXES/pickPhraseForStage) — малыш keeps using the plain
+// tease/tease_harsh pools above as its baseline, these three stages get
+// their own escalating flavor: молодой is cockier, взрослый is sharper and
+// more composed, старый is world-weary and dismissive.
+const TEASE_YOUNG_PHRASES = [
+  'Ха, серьёзно? Твоя дразнилка совсем слабый, дружок.',
+  'Моя уже не малыш — такое моя не задевать.',
+  'Твоя пытаться — плюс за старание, минус за результат.',
+  'Опять твоя за старое? Моя уже привык к твоя выходкам.',
+  'Твоя думать это обидно? Моя даже не поморщиться.',
+  'Слабенько, друг. Моя видеть попытки и получше.',
+  'Твоя язык острый, но моя кожа острее.',
+  'Ну давай, ещё раз попробуй — моя подождать.',
+  'Твоя смешить моя своя дразнилка, честно.',
+  'Моя расти — и твоя шутки расти не успевать.',
+];
+const TEASE_ADULT_PHRASES = [
+  'Серьёзно? Я думал, ты придумаешь что-то получше.',
+  'Твои слова не долетают — я давно перерос такие уколы.',
+  'Мило, что ты пытаешься. Продолжай тренироваться.',
+  'Я взрослый тролль — меня такими мелочами не пробить.',
+  'Твоя дерзость забавна, но безрезультатна.',
+  'Ты явно недооценил, с кем связался.',
+  'Спасибо за попытку. Правда, спасибо — было забавно.',
+  'Я слышал оскорбления и получше от детей помладше тебя.',
+  'Твой запал впечатляет больше, чем содержание.',
+  'Возвращайся, когда придумаешь что-то стоящее.',
+];
+const TEASE_OLD_PHRASES = [
+  'Эх, молодёжь... думаешь удивить старого тролля?',
+  'Я такое слышал ещё до твоего рождения, дитя.',
+  'Побереги силы, внучок, я видал дразнилки и пострашнее.',
+  '*устало вздыхает* Опять двадцать пять...',
+  'Твоя дерзость мила, как и всё в твоём возрасте.',
+  'Я пережил века под этим мостом — твои слова не более чем ветер.',
+  'Ну-ну, покажи характер. Я подожду, мне спешить некуда.',
+  'В моё время дразнились как-то изощрённее, чесслово.',
+  '*кряхтит* Ты хоть представляешь, сколько таких, как ты, я видал?',
+  'Мудрость приходит с возрастом — жаль, не к тебе.',
+];
+const TEASE_HARSH_YOUNG_PHRASES = [
+  'Заткнись, мелкий выскочка, пока моя не показал тебе, кто тут главный.',
+  'Твоя мозг совсем отсутствовать? Даже не удивлён.',
+  'Пшёл вон, неудачник, моя терпение не резиновое.',
+  'Твоя жалок — даже дразнить скучно.',
+  'Ещё слово — и моя перестать быть вежливым.',
+  'Твоя реально думать это сработать? Смешно.',
+  'Отвали, пока цел, дурень.',
+  'Моя видеть больше таланта в камне под мостом, чем в твоя словах.',
+  'Твоя тупость поражает даже моя.',
+  'Свали, пока моя добрый.',
+];
+const TEASE_HARSH_ADULT_PHRASES = [
+  'Ты действительно жалок. Даже оскорблять тебя скучно.',
+  'Прекрати унижаться — это даже для меня слишком неловко смотреть.',
+  'Твоё существование — уже достаточное наказание для окружающих.',
+  'Я видел мусор интереснее тебя.',
+  'Заткнись и не трать моё время впустую.',
+  'Ты — живое доказательство того, что не всем стоило рождаться умными.',
+  'Убирайся, пока я не решил, что ты того не стоишь даже для оскорблений.',
+  'Твоя наглость не компенсирует полное отсутствие мозгов.',
+  'Даже эхо под мостом умнее твоих слов.',
+  'Проваливай — от тебя веет только позором.',
+];
+const TEASE_HARSH_OLD_PHRASES = [
+  'Мальчишка, я топил таких, как ты, ещё столетие назад.',
+  '*презрительно фыркает* Твоя дерзость — жалкая тень настоящей наглости.',
+  'Даже гнилой пень под мостом уважительнее тебя.',
+  'Ты не стоишь моего гнева — только моего презрения.',
+  'Я видел тысячи таких глупцов — все они кончили одинаково жалко.',
+  'Прочь с глаз, пока старость не сделала меня снисходительным к тебе.',
+  'Твои слова — пыль на ветру времени, которое я пережил.',
+  'Даже мхом на камне я дорожу больше, чем твоим мнением.',
+  '*устало машет рукой* Иди отсюда, дитя, ты утомляешь старого тролля.',
+  'Я похоронил под этим мостом наглецов посерьёзнее тебя.',
+];
+
 // Tops up an already-deployed troll_phrases table with new seed phrases for
 // a category, checked by exact text match rather than a first-run-only
 // gate — so it's safe to call again on every restart without duplicating.
@@ -613,6 +691,12 @@ seedPhrasesIfMissing('tease', TEASE_EXTRA_PHRASES);
 seedPhrasesIfMissing('tease_harsh', TEASE_HARSH_PHRASES);
 seedPhrasesIfMissing('tease_neutral', TEASE_NEUTRAL_PHRASES);
 seedPhrasesIfMissing('tease_adoring', TEASE_ADORING_PHRASES);
+seedPhrasesIfMissing('tease_young', TEASE_YOUNG_PHRASES);
+seedPhrasesIfMissing('tease_adult', TEASE_ADULT_PHRASES);
+seedPhrasesIfMissing('tease_old', TEASE_OLD_PHRASES);
+seedPhrasesIfMissing('tease_harsh_young', TEASE_HARSH_YOUNG_PHRASES);
+seedPhrasesIfMissing('tease_harsh_adult', TEASE_HARSH_ADULT_PHRASES);
+seedPhrasesIfMissing('tease_harsh_old', TEASE_HARSH_OLD_PHRASES);
 
 console.log('Тролль-бот: схема готова.');
 
@@ -668,6 +752,37 @@ function sendCategoryReply(chatId, category, fallback, actorLabel) {
     if (sticker.hasOwnText) return stickerPromise;
   }
   const phrase = pickPhrase(category, fallback);
+  return bot.sendMessage(chatId, actorLabel ? `${actorLabel} → ${phrase}` : phrase).catch(() => {});
+}
+
+// Per-stage content, layered on top of any category: <category>_baby /
+// _young / _adult / _old, falling back to the plain <category> pool when
+// nothing's been added for that stage yet. This means every interaction
+// CAN have distinct per-stage phrases/stickers without requiring all four
+// variants to exist up front — admin adds them via the panel's Фразы tab
+// (which already groups by whatever category strings exist, no code
+// changes needed there to recognize a new suffix). Not used by boobs_*,
+// which predates this convention and keeps its own baby/teen/young/adult
+// naming.
+const STAGE_SUFFIXES = { 1: '_baby', 2: '_young', 3: '_adult', 4: '_old' };
+
+function pickPhraseForStage(baseCategory, stage, fallback) {
+  const staged = getPhrases(baseCategory + (STAGE_SUFFIXES[stage] || ''));
+  if (staged.length > 0) return pick(staged);
+  return pickPhrase(baseCategory, fallback);
+}
+
+function pickStickerForStage(baseCategory, stage) {
+  return pickSticker(baseCategory + (STAGE_SUFFIXES[stage] || '')) || pickSticker(baseCategory);
+}
+
+function sendCategoryReplyForStage(chatId, baseCategory, stage, fallback, actorLabel) {
+  const sticker = Math.random() < 0.5 ? pickStickerForStage(baseCategory, stage) : null;
+  if (sticker) {
+    const stickerPromise = bot.sendSticker(chatId, sticker.fileId).catch(() => {});
+    if (sticker.hasOwnText) return stickerPromise;
+  }
+  const phrase = pickPhraseForStage(baseCategory, stage, fallback);
   return bot.sendMessage(chatId, actorLabel ? `${actorLabel} → ${phrase}` : phrase).catch(() => {});
 }
 
@@ -837,7 +952,7 @@ function getActivityLine(state) {
   if (state.is_asleep) {
     return 'спит под мостом, тихо похрапывает';
   }
-  return pickPhrase('activity_awake', 'бродит под мостом');
+  return pickPhraseForStage('activity_awake', state.stage, 'бродит под мостом');
 }
 
 const TROLL_ACTION_KEYBOARD = {
@@ -946,14 +1061,14 @@ function performPlay(chatId, from) {
   if (!checkCommandCooldown(from.id, 'play')) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
+    sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from));
     return;
   }
   db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10), char_playfulness = MIN(100, char_playfulness + 6), char_anger = MAX(0, char_anger - 4) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'play');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_play_delta'));
-  sendCategoryReply(chatId, 'play', 'Моя рада играть с твоя!', actorName(from));
+  sendCategoryReplyForStage(chatId, 'play', state.stage, 'Моя рада играть с твоя!', actorName(from));
 }
 
 // async + awaited sends throughout: without awaiting, two fire-and-forget
@@ -992,7 +1107,7 @@ async function performKick(chatId, from) {
     // relationship, earns a comeback, and costs the attacker their kick
     // button for an hour.
     adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
-    await sendCategoryReply(chatId, pickTeaseCategory(from.id), 'Твоя не попасть в моя!', actorName(from));
+    await sendCategoryReplyForStage(chatId, pickTeaseCategory(from.id), state.stage, 'Твоя не попасть в моя!', actorName(from));
     db.prepare('UPDATE troll_relationships SET kick_blocked_until = ? WHERE user_id = ?').run(now + 3600, from.id);
     return;
   }
@@ -1001,7 +1116,7 @@ async function performKick(chatId, from) {
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), health = MAX(0, health - 5), silenced_until = ? WHERE id = 1').run(silencedUntil);
   logAction(from.id, from.username || from.first_name, 'kick');
   adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
-  await sendCategoryReply(chatId, 'kick', 'Твоя злой! Моя обижаться!', actorName(from));
+  await sendCategoryReplyForStage(chatId, 'kick', state.stage, 'Твоя злой! Моя обижаться!', actorName(from));
 
   // 2 landed kicks within an hour: the troll tries to hide from everyone.
   const recentKicks = db.prepare(
@@ -1039,7 +1154,7 @@ function performFeed(chatId, from) {
   if (!checkCommandCooldown(from.id, 'feed')) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
+    sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from));
     return;
   }
   // Completely full (satiety 100): the only case rejected outright — the
@@ -1049,7 +1164,7 @@ function performFeed(chatId, from) {
     logAction(from.id, from.username || from.first_name, 'feed_reject');
     noticeUser(from.id, from.username, from.first_name);
     adjustAttitude(from.id, getSettingNumber('attitude_feed_reject_delta'));
-    sendCategoryReply(chatId, 'feed_reject', 'Моя сытый! *кидает еда в твоя*', actorName(from));
+    sendCategoryReplyForStage(chatId, 'feed_reject', state.stage, 'Моя сытый! *кидает еда в твоя*', actorName(from));
     return;
   }
   // Satiety 90-99: still eats, but it's overeating — same stat gains, plus
@@ -1067,9 +1182,9 @@ function performFeed(chatId, from) {
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_feed_delta'));
   if (overeating) {
-    sendCategoryReply(chatId, 'feed_overeat', 'Ммм, моя переедать, но моя не мочь остановиться...', actorName(from));
+    sendCategoryReplyForStage(chatId, 'feed_overeat', state.stage, 'Ммм, моя переедать, но моя не мочь остановиться...', actorName(from));
   } else {
-    sendCategoryReply(chatId, 'feed', 'Ням-ням, спасибо твоя!', actorName(from));
+    sendCategoryReplyForStage(chatId, 'feed', state.stage, 'Ням-ням, спасибо твоя!', actorName(from));
   }
 }
 
@@ -1079,13 +1194,13 @@ function performTease(chatId, from) {
   if (!checkCommandCooldown(from.id, 'tease')) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    sendCategoryReply(chatId, 'woken_angry', 'Твоя разбудить моя! Моя злой!', actorName(from));
+    sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from));
     return;
   }
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10), char_anger = MIN(100, char_anger + 8) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'tease');
   noticeUser(from.id, from.username, from.first_name);
-  sendCategoryReply(chatId, pickTeaseCategory(from.id), 'Твоя дразнить моя?! Моя злиться!', actorName(from));
+  sendCategoryReplyForStage(chatId, pickTeaseCategory(from.id), state.stage, 'Твоя дразнить моя?! Моя злиться!', actorName(from));
 }
 
 // малыш sees it as food (the joke the whole feature started from); the
@@ -1306,24 +1421,24 @@ function triggerMischief(chatId) {
     const effectiveTier = targetInfo.attitude <= escalationThreshold ? Math.min(maxTier, tier + 1) : tier;
     if (Math.random() < 0.5) {
       const phraseCategory = TARGETED_PHRASE_TIER_CATEGORIES[effectiveTier];
-      const sticker = Math.random() < 0.5 ? pickSticker(phraseCategory) : null;
+      const sticker = Math.random() < 0.5 ? pickStickerForStage(phraseCategory, stage) : null;
       if (sticker) bot.sendSticker(chatId, sticker.fileId).catch(() => {});
       if (!sticker || !sticker.hasOwnText) {
-        const template = pickPhrase(phraseCategory, 'подмигнул {user}');
+        const template = pickPhraseForStage(phraseCategory, stage, 'подмигнул {user}');
         bot.sendMessage(chatId, `*${template.replace(/\{user\}/g, target)}*`).catch(() => {});
       }
     } else {
-      const template = pickPhrase(TARGETED_ACTION_TIER_CATEGORIES[effectiveTier], 'подшутить над {user}');
+      const template = pickPhraseForStage(TARGETED_ACTION_TIER_CATEGORIES[effectiveTier], stage, 'подшутить над {user}');
       const action = template.replace(/\{user\}/g, target);
       bot.sendMessage(chatId, rollTrollTry(action)).catch(() => {});
     }
     return;
   }
   const mischiefCategory = MISCHIEF_TIER_CATEGORIES[tier];
-  const sticker = Math.random() < 0.5 ? pickSticker(mischiefCategory) : null;
+  const sticker = Math.random() < 0.5 ? pickStickerForStage(mischiefCategory, stage) : null;
   if (sticker) bot.sendSticker(chatId, sticker.fileId).catch(() => {});
   if (!sticker || !sticker.hasOwnText) {
-    const action = pickPhrase(mischiefCategory, 'шалит тихонько под мостом');
+    const action = pickPhraseForStage(mischiefCategory, stage, 'шалит тихонько под мостом');
     let phrase = `*${action}*`;
     if (Math.random() < 0.3) {
       const rememberedUser = maybeRememberedUser();
@@ -1333,8 +1448,8 @@ function triggerMischief(chatId) {
   }
 }
 
-function triggerBegging(chatId) {
-  sendCategoryReply(chatId, 'hunger_beg', 'Моя кушать хотеть! Кто-нибудь покормить моя?!', null);
+function triggerBegging(chatId, stage) {
+  sendCategoryReplyForStage(chatId, 'hunger_beg', stage, 'Моя кушать хотеть! Кто-нибудь покормить моя?!', null);
 }
 
 // Reuses pickMischiefTarget/getMentionName — same weighted "recent
@@ -1343,18 +1458,18 @@ function triggerBegging(chatId) {
 // Two chained rolls: grabbing on, then (only if that succeeds) actually
 // suckling — only the second roll's success restores satiety, so a failed
 // grab never pays off.
-async function triggerHungryGrab(chatId) {
-  if (recentMessages.length === 0) return triggerBegging(chatId);
+async function triggerHungryGrab(chatId, stage) {
+  if (recentMessages.length === 0) return triggerBegging(chatId, stage);
   const targetInfo = pickMischiefTarget();
   const target = getMentionName(targetInfo.entry);
 
-  const grabTemplate = pickPhrase('hunger_grab_action', 'вцепиться в сиську {user} от голод');
+  const grabTemplate = pickPhraseForStage('hunger_grab_action', stage, 'вцепиться в сиську {user} от голод');
   const grabAction = grabTemplate.replace(/\{user\}/g, target);
   const grabRoll = rollTrollTryResult(grabAction);
   await bot.sendMessage(chatId, grabRoll.text).catch(() => {});
   if (!grabRoll.success) return;
 
-  const suckleTemplate = pickPhrase('hunger_suckle_action', 'пососать молоко у {user}');
+  const suckleTemplate = pickPhraseForStage('hunger_suckle_action', stage, 'пососать молоко у {user}');
   const suckleAction = suckleTemplate.replace(/\{user\}/g, target);
   const suckleRoll = rollTrollTryResult(suckleAction);
   await bot.sendMessage(chatId, suckleRoll.text).catch(() => {});
@@ -1367,9 +1482,9 @@ async function triggerHungryGrab(chatId) {
 // --- Digestion cycle: eat / poop / pee (all autonomous, independent ticks) ---
 const WEIGHT_FLOOR = 30;
 
-function triggerAutoEat(chatId) {
+function triggerAutoEat(chatId, stage) {
   applyEatStats(false);
-  sendCategoryReply(chatId, 'self_eat', 'Моя найти еда и скушать сама!', null);
+  sendCategoryReplyForStage(chatId, 'self_eat', stage, 'Моя найти еда и скушать сама!', null);
 }
 
 // Candidate pool for the current poop mini-game, populated by the message
@@ -1482,10 +1597,10 @@ function backgroundTick() {
     const hungerIntervalSeconds = getSettingNumber('hunger_action_interval_minutes') * 60;
     if (!state.last_hunger_action_at || now - state.last_hunger_action_at >= hungerIntervalSeconds) {
       if (state.satiety < 30) {
-        triggerHungryGrab(state.chat_id);
+        triggerHungryGrab(state.chat_id, state.stage);
         db.prepare('UPDATE troll_state SET last_hunger_action_at = ? WHERE id = 1').run(now);
       } else if (state.satiety < 50) {
-        triggerBegging(state.chat_id);
+        triggerBegging(state.chat_id, state.stage);
         db.prepare('UPDATE troll_state SET last_hunger_action_at = ? WHERE id = 1').run(now);
       }
     }
@@ -1494,7 +1609,7 @@ function backgroundTick() {
     // own schedule regardless of the others.
     const eatIntervalSeconds = getSettingNumber('eat_action_interval_minutes') * 60;
     if (state.satiety < 70 && (!state.last_eat_action_at || now - state.last_eat_action_at >= eatIntervalSeconds)) {
-      triggerAutoEat(state.chat_id);
+      triggerAutoEat(state.chat_id, state.stage);
       db.prepare('UPDATE troll_state SET last_eat_action_at = ? WHERE id = 1').run(now);
     }
 
@@ -1539,7 +1654,7 @@ bot.on('message', (msg) => {
   const repliedToTroll = !!(msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === botUserId);
   if (repliedToTroll && msg.text && checkCommandCooldown(msg.from.id, 'teach')) {
     learnPhrase(msg.text, msg.from);
-    const comeback = pickPhrase(pickTeaseCategory(msg.from.id), 'Твоя дразнить моя?! Моя не любить это!');
+    const comeback = pickPhraseForStage(pickTeaseCategory(msg.from.id), state.stage, 'Твоя дразнить моя?! Моя не любить это!');
     bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
   }
 
@@ -1557,7 +1672,7 @@ bot.on('message', (msg) => {
   if (getSetting('paused') === '1' || isSilenced(state) || isNightNow()) return;
 
   if (addressedByName) {
-    const comeback = pickPhrase(pickTeaseCategory(msg.from.id), 'Твоя звать моя? Моя тут!');
+    const comeback = pickPhraseForStage(pickTeaseCategory(msg.from.id), state.stage, 'Твоя звать моя? Моя тут!');
     bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
     return;
   }
