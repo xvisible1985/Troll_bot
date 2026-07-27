@@ -256,6 +256,12 @@ for (const column of ['troll_fas_until', 'troll_fas_target_user_id']) {
     db.exec(`ALTER TABLE troll_state ADD COLUMN ${column} INTEGER`);
   } catch {}
 }
+// Whoever is FIRST to reach attitude 100 becomes "mama" — permanent once
+// set (see checkMamaPromotion), not re-evaluated if their attitude later
+// drops back down.
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN mama_user_id INTEGER');
+} catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -726,6 +732,32 @@ const BOOBS_ADULT_MEMORY_PHRASES = [
   'Твоя сиська — теперь легенда в моя память, людишка!',
 ];
 
+// Whoever earns the "mama" title (see checkMamaPromotion) gets these
+// instead of the normal play/feed/tease/boobs pool — clingy, demanding,
+// toddler-with-a-parent energy.
+const MAMA_PHRASES = [
+  'Мама! Мама! Взять моя на ручки!',
+  'Мама, погулять с моя, а? Моя хотеть на улица!',
+  'Мама, покормить моя, моя кушать хотеть!',
+  'Мама, моя хотеть на ручки прямо сейчас!',
+  'Мама, потрогать моя пузико, оно урчать!',
+  'Мама, моя хотеть обнимашки!',
+  'Мама, посмотри, какой моя хвостик — потрогать его!',
+  'Мама, моя устал, взять моя на ручки!',
+  'Мама, купить моя вкусняшка!',
+  'Мама, поиграть с моя, а то моя скучать!',
+  'Мама, почесать моя за ухом, пожалуйста!',
+  'Мама, моя хотеть сидеть у твоя на коленках!',
+  'Мама, посмотри на моя бородавка — потрогать её!',
+  'Мама, спой моя колыбельная!',
+  'Мама, моя боится темноты, побудь рядом!',
+  'Мама, моя нарисовал тебе картинка из грязи!',
+  'Мама, понеси моя, моя лапки устали!',
+  'Мама, моя хотеть купаться в лужа с твоя!',
+  'Мама, расскажи моя сказка про тролль!',
+  'Мама, моя любить твоя больше всех на свете!',
+];
+
 // Tops up an already-deployed troll_phrases table with new seed phrases for
 // a category, checked by exact text match rather than a first-run-only
 // gate — so it's safe to call again on every restart without duplicating.
@@ -756,6 +788,7 @@ seedPhrasesIfMissing('boobs_baby', BOOBS_BABY_MEMORY_PHRASES);
 seedPhrasesIfMissing('boobs_teen', BOOBS_TEEN_MEMORY_PHRASES);
 seedPhrasesIfMissing('boobs_young', BOOBS_YOUNG_MEMORY_PHRASES);
 seedPhrasesIfMissing('boobs_adult', BOOBS_ADULT_MEMORY_PHRASES);
+seedPhrasesIfMissing('mama', MAMA_PHRASES);
 
 console.log('Тролль-бот: схема готова.');
 
@@ -871,6 +904,26 @@ function noticeUser(userId, username, firstName) {
 
 function adjustAttitude(userId, delta) {
   db.prepare('UPDATE troll_relationships SET attitude = MAX(-100, MIN(100, attitude + ?)) WHERE user_id = ?').run(delta, userId);
+}
+
+// Whoever is first to actually reach attitude 100 gets crowned — checked
+// right after adjustAttitude wherever the delta can be positive (play,
+// feed). Once someone holds the title it's never re-evaluated, even if
+// their attitude drops later.
+function checkMamaPromotion(chatId, userId) {
+  const state = db.prepare('SELECT mama_user_id FROM troll_state WHERE id = 1').get();
+  if (!state || state.mama_user_id) return;
+  const rel = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(userId);
+  if (!rel || rel.attitude < 100) return;
+  db.prepare('UPDATE troll_state SET mama_user_id = ? WHERE id = 1').run(userId);
+  bot.sendMessage(chatId, '👑 Моя обрести мама! Твоя теперь моя мама навсегда!').catch(() => {});
+}
+
+// Swaps in the 'mama' phrase pool for whoever holds that title, on the
+// affectionate commands only (play/feed/tease/boobs) — kicking mama still
+// gets the normal kick reaction, that one isn't overridden.
+function mamaCategoryOverride(state, userId, fallbackCategory) {
+  return state.mama_user_id && state.mama_user_id === userId ? 'mama' : fallbackCategory;
 }
 
 // Four tiers by relationship, used uniformly by /tease, the reply-to-troll
@@ -1127,7 +1180,8 @@ function performPlay(chatId, from) {
   logAction(from.id, from.username || from.first_name, 'play');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_play_delta'));
-  sendCategoryReplyForStage(chatId, 'play', state.stage, 'Моя рада играть с твоя!', actorName(from));
+  checkMamaPromotion(chatId, from.id);
+  sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, 'play'), state.stage, 'Моя рада играть с твоя!', actorName(from));
 }
 
 // async + awaited sends throughout: without awaiting, two fire-and-forget
@@ -1240,10 +1294,11 @@ function performFeed(chatId, from) {
   logAction(from.id, from.username || from.first_name, overeating ? 'feed_overeat' : 'feed');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_feed_delta'));
+  checkMamaPromotion(chatId, from.id);
   if (overeating) {
-    sendCategoryReplyForStage(chatId, 'feed_overeat', state.stage, 'Ммм, моя переедать, но моя не мочь остановиться...', actorName(from));
+    sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, 'feed_overeat'), state.stage, 'Ммм, моя переедать, но моя не мочь остановиться...', actorName(from));
   } else {
-    sendCategoryReplyForStage(chatId, 'feed', state.stage, 'Ням-ням, спасибо твоя!', actorName(from));
+    sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, 'feed'), state.stage, 'Ням-ням, спасибо твоя!', actorName(from));
   }
 }
 
@@ -1259,7 +1314,7 @@ function performTease(chatId, from) {
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10), char_anger = MIN(100, char_anger + 8) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'tease');
   noticeUser(from.id, from.username, from.first_name);
-  sendCategoryReplyForStage(chatId, pickTeaseCategory(from.id), state.stage, 'Твоя дразнить моя?! Моя злиться!', actorName(from));
+  sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, pickTeaseCategory(from.id)), state.stage, 'Твоя дразнить моя?! Моя злиться!', actorName(from));
 }
 
 // малыш sees it as food (the joke the whole feature started from); the
@@ -1275,7 +1330,7 @@ function performBoobs(chatId, from) {
   db.prepare('UPDATE troll_state SET char_lust = MIN(100, char_lust + 8) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'boobs');
   noticeUser(from.id, from.username, from.first_name);
-  sendCategoryReply(chatId, category, 'Моя видеть еда!', actorName(from));
+  sendCategoryReply(chatId, mamaCategoryOverride(state, from.id, category), 'Моя видеть еда!', actorName(from));
 }
 
 bot.onText(/\/play\b/, (msg) => {
