@@ -1872,6 +1872,12 @@ bot.onText(/\/troll_help\b/, (msg) => {
   bot.sendMessage(msg.chat.id, text);
 });
 
+// Quick way to find a chat's numeric ID (e.g. to relocate the troll via
+// UPDATE troll_state SET chat_id = ... — there's no move command yet).
+bot.onText(/\/chatid\b/, (msg) => {
+  bot.sendMessage(msg.chat.id, `ID этого чата: ${msg.chat.id}`);
+});
+
 // --- Polling ---
 let offset = undefined;
 
