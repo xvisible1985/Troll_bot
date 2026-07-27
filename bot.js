@@ -82,7 +82,6 @@ bot.getMe().then((me) => { botUserId = me.id; }).catch((err) => {
 // remembers to update BotFather by hand.
 const PUBLIC_COMMANDS = [
   { command: 'troll', description: 'Статус тролля (здоровье, сытость, настроение, стадия)' },
-  { command: 'troll_character', description: 'Характер тролля (аппетит, игривость, злость, похоть, вредность)' },
   { command: 'play', description: 'Поиграть с тролем' },
   { command: 'feed', description: 'Покормить тролля' },
   { command: 'kick', description: 'Пнуть тролля' },
