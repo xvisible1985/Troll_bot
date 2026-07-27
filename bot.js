@@ -86,6 +86,8 @@ const ADMIN_ONLY_COMMANDS = [
   { command: 'troll_pause', description: 'Выключить шалости' },
   { command: 'troll_resume', description: 'Включить шалости' },
   { command: 'troll_reset', description: 'Полный сброс тролля' },
+  { command: 'troll_poop', description: 'Заставить тролля покакать сейчас' },
+  { command: 'troll_pee', description: 'Заставить тролля пописать сейчас' },
   { command: 'troll_say', description: 'Сказать текст от лица тролля' },
   { command: 'troll_phrases', description: 'Все реплики тролля по категориям' },
   { command: 'troll_phrase_add', description: 'Добавить фразу' },
@@ -656,14 +658,17 @@ function pickSticker(category) {
   return { fileId: row.file_id, hasOwnText: !!row.has_own_text };
 }
 
+// Returns the underlying send promise so ordering-sensitive callers (e.g.
+// after a trial-roll message) can await it — callers that don't care can
+// keep firing-and-forgetting exactly as before.
 function sendCategoryReply(chatId, category, fallback, actorLabel) {
   const sticker = Math.random() < 0.5 ? pickSticker(category) : null;
   if (sticker) {
-    bot.sendSticker(chatId, sticker.fileId).catch(() => {});
-    if (sticker.hasOwnText) return;
+    const stickerPromise = bot.sendSticker(chatId, sticker.fileId).catch(() => {});
+    if (sticker.hasOwnText) return stickerPromise;
   }
   const phrase = pickPhrase(category, fallback);
-  bot.sendMessage(chatId, actorLabel ? `${actorLabel} → ${phrase}` : phrase).catch(() => {});
+  return bot.sendMessage(chatId, actorLabel ? `${actorLabel} → ${phrase}` : phrase).catch(() => {});
 }
 
 function isSilenced(state) {
@@ -951,7 +956,11 @@ function performPlay(chatId, from) {
   sendCategoryReply(chatId, 'play', 'Моя рада играть с твоя!', actorName(from));
 }
 
-function performKick(chatId, from) {
+// async + awaited sends throughout: without awaiting, two fire-and-forget
+// sendMessage calls issued back-to-back race over the network and can
+// arrive at Telegram (and so appear in the chat) in either order — the
+// roll message must visibly land before whatever response follows it.
+async function performKick(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
   if (!checkCommandCooldown(from.id, 'kick')) return;
@@ -961,7 +970,7 @@ function performKick(chatId, from) {
   // Global hide lockout: troll successfully hid after 2 kicks within an
   // hour (see below) — /kick does nothing for anyone until it expires.
   if (state.kick_locked_until && state.kick_locked_until > now) {
-    bot.sendMessage(chatId, 'Тролль спрятался и не даётся пнуть! Попробуй позже.').catch(() => {});
+    await bot.sendMessage(chatId, 'Тролль спрятался и не даётся пнуть! Попробуй позже.').catch(() => {});
     return;
   }
 
@@ -971,19 +980,19 @@ function performKick(chatId, from) {
   // button/command still shows for them, it just no-ops with a message.
   const rel = db.prepare('SELECT kick_blocked_until FROM troll_relationships WHERE user_id = ?').get(from.id);
   if (rel && rel.kick_blocked_until && rel.kick_blocked_until > now) {
-    bot.sendMessage(chatId, `${actorName(from)}, тролль прячется от тебя! Попробуй позже.`).catch(() => {});
+    await bot.sendMessage(chatId, `${actorName(from)}, тролль прячется от тебя! Попробуй позже.`).catch(() => {});
     return;
   }
 
   const dodgeRoll = rollTrollTryResult(`увернуться от пинка ${actorName(from)}`);
-  bot.sendMessage(chatId, dodgeRoll.text).catch(() => {});
+  await bot.sendMessage(chatId, dodgeRoll.text).catch(() => {});
 
   if (dodgeRoll.success) {
     // Dodged: no mood/health hit, but the attempt itself still sours the
     // relationship, earns a comeback, and costs the attacker their kick
     // button for an hour.
     adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
-    sendCategoryReply(chatId, pickTeaseCategory(from.id), 'Твоя не попасть в моя!', actorName(from));
+    await sendCategoryReply(chatId, pickTeaseCategory(from.id), 'Твоя не попасть в моя!', actorName(from));
     db.prepare('UPDATE troll_relationships SET kick_blocked_until = ? WHERE user_id = ?').run(now + 3600, from.id);
     return;
   }
@@ -992,7 +1001,7 @@ function performKick(chatId, from) {
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), health = MAX(0, health - 5), silenced_until = ? WHERE id = 1').run(silencedUntil);
   logAction(from.id, from.username || from.first_name, 'kick');
   adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
-  sendCategoryReply(chatId, 'kick', 'Твоя злой! Моя обижаться!', actorName(from));
+  await sendCategoryReply(chatId, 'kick', 'Твоя злой! Моя обижаться!', actorName(from));
 
   // 2 landed kicks within an hour: the troll tries to hide from everyone.
   const recentKicks = db.prepare(
@@ -1000,7 +1009,7 @@ function performKick(chatId, from) {
   ).get(now - 3600).n;
   if (recentKicks >= 2) {
     const hideRoll = rollTrollTryResult('спрятаться от всех пинков');
-    bot.sendMessage(chatId, hideRoll.text).catch(() => {});
+    await bot.sendMessage(chatId, hideRoll.text).catch(() => {});
     if (hideRoll.success) {
       db.prepare('UPDATE troll_state SET kick_locked_until = ? WHERE id = 1').run(now + 3600);
     }
@@ -1334,7 +1343,7 @@ function triggerBegging(chatId) {
 // Two chained rolls: grabbing on, then (only if that succeeds) actually
 // suckling — only the second roll's success restores satiety, so a failed
 // grab never pays off.
-function triggerHungryGrab(chatId) {
+async function triggerHungryGrab(chatId) {
   if (recentMessages.length === 0) return triggerBegging(chatId);
   const targetInfo = pickMischiefTarget();
   const target = getMentionName(targetInfo.entry);
@@ -1342,13 +1351,13 @@ function triggerHungryGrab(chatId) {
   const grabTemplate = pickPhrase('hunger_grab_action', 'вцепиться в сиську {user} от голод');
   const grabAction = grabTemplate.replace(/\{user\}/g, target);
   const grabRoll = rollTrollTryResult(grabAction);
-  bot.sendMessage(chatId, grabRoll.text).catch(() => {});
+  await bot.sendMessage(chatId, grabRoll.text).catch(() => {});
   if (!grabRoll.success) return;
 
   const suckleTemplate = pickPhrase('hunger_suckle_action', 'пососать молоко у {user}');
   const suckleAction = suckleTemplate.replace(/\{user\}/g, target);
   const suckleRoll = rollTrollTryResult(suckleAction);
-  bot.sendMessage(chatId, suckleRoll.text).catch(() => {});
+  await bot.sendMessage(chatId, suckleRoll.text).catch(() => {});
   if (suckleRoll.success) {
     const satietyGain = getSettingNumber('satiety_suckle_gain');
     db.prepare('UPDATE troll_state SET satiety = MIN(100, satiety + ?) WHERE id = 1').run(satietyGain);
@@ -1558,7 +1567,7 @@ bot.on('message', (msg) => {
     triggerMischief(state.chat_id);
   } else if (!repliedToTroll && Math.random() < getSettingNumber('learned_phrase_reply_chance') / 100) {
     const learned = db.prepare('SELECT text FROM troll_learned_phrases ORDER BY RANDOM() LIMIT 1').get();
-    if (learned) bot.sendMessage(msg.chat.id, learned.text, { reply_to_message_id: msg.message_id }).catch(() => {});
+    if (learned) bot.sendMessage(msg.chat.id, trollify(learned.text), { reply_to_message_id: msg.message_id }).catch(() => {});
   }
 });
 
@@ -1597,6 +1606,22 @@ bot.onText(/\/troll_reset\b/, (msg) => {
   db.exec('DELETE FROM troll_state');
   db.exec('DELETE FROM troll_actions');
   bot.sendMessage(msg.chat.id, 'Тролль сброшен. Используй /troll_here в публичном чате, чтобы призвать нового.');
+});
+
+bot.onText(/\/troll_poop\b/, (msg) => {
+  if (!isAdminChat(msg)) return;
+  const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
+  if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет.');
+  triggerPoop(state.chat_id);
+  db.prepare('UPDATE troll_state SET last_poop_action_at = ? WHERE id = 1').run(Math.floor(Date.now() / 1000));
+});
+
+bot.onText(/\/troll_pee\b/, (msg) => {
+  if (!isAdminChat(msg)) return;
+  const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
+  if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет.');
+  triggerPee(state.chat_id);
+  db.prepare('UPDATE troll_state SET last_pee_action_at = ? WHERE id = 1').run(Math.floor(Date.now() / 1000));
 });
 
 bot.onText(/\/troll_say ([\s\S]+)/, (msg, match) => {
@@ -1705,6 +1730,8 @@ const TROLL_HELP_ADMIN = [
   '/troll_set <ключ> <значение> — изменить настройку',
   '/troll_pause / /troll_resume — выключить/включить шалости',
   '/troll_reset — полный сброс тролля',
+  '/troll_poop — заставить тролля покакать прямо сейчас (мини-игра)',
+  '/troll_pee — заставить тролля пописать прямо сейчас',
   '/troll_say <текст> — сказать текст от лица тролля тролльским акцентом',
   '/troll_phrases [категория] — все реплики тролля по категориям (с ID), или только одна категория',
   '/troll_phrase_add <категория> <текст> — добавить фразу',
