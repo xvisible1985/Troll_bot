@@ -867,13 +867,13 @@ function pickSticker(category) {
 // Returns the underlying send promise so ordering-sensitive callers (e.g.
 // after a trial-roll message) can await it — callers that don't care can
 // keep firing-and-forgetting exactly as before.
-function sendCategoryReply(chatId, category, fallback, actorLabel) {
+function sendCategoryReply(chatId, category, fallback, actorLabel, actorUserId) {
   const sticker = Math.random() < 0.5 ? pickSticker(category) : null;
   if (sticker) {
     const stickerPromise = bot.sendSticker(chatId, sticker.fileId).catch(() => {});
     if (sticker.hasOwnText) return stickerPromise;
   }
-  const phrase = pickPhrase(category, fallback);
+  const phrase = appendRelationshipEmoji(pickPhrase(category, fallback), actorUserId);
   return bot.sendMessage(chatId, actorLabel ? `${actorLabel} → ${phrase}` : phrase).catch(() => {});
 }
 
@@ -898,13 +898,13 @@ function pickStickerForStage(baseCategory, stage) {
   return pickSticker(baseCategory + (STAGE_SUFFIXES[stage] || '')) || pickSticker(baseCategory);
 }
 
-function sendCategoryReplyForStage(chatId, baseCategory, stage, fallback, actorLabel) {
+function sendCategoryReplyForStage(chatId, baseCategory, stage, fallback, actorLabel, actorUserId) {
   const sticker = Math.random() < 0.5 ? pickStickerForStage(baseCategory, stage) : null;
   if (sticker) {
     const stickerPromise = bot.sendSticker(chatId, sticker.fileId).catch(() => {});
     if (sticker.hasOwnText) return stickerPromise;
   }
-  const phrase = pickPhraseForStage(baseCategory, stage, fallback);
+  const phrase = appendRelationshipEmoji(pickPhraseForStage(baseCategory, stage, fallback), actorUserId);
   return bot.sendMessage(chatId, actorLabel ? `${actorLabel} → ${phrase}` : phrase).catch(() => {});
 }
 
@@ -932,8 +932,14 @@ function noticeUser(userId, username, firstName) {
   }
 }
 
+// Returns the attitude BEFORE this adjustment so callers can detect a
+// just-now crossing into enemy territory (see checkEnemyDeclaration) —
+// existing callers that ignore the return value are unaffected.
 function adjustAttitude(userId, delta) {
+  const before = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(userId);
+  const oldAttitude = before ? before.attitude : 0;
   db.prepare('UPDATE troll_relationships SET attitude = MAX(-100, MIN(100, attitude + ?)) WHERE user_id = ?').run(delta, userId);
+  return oldAttitude;
 }
 
 // Whoever is first to actually reach attitude 100 gets crowned — checked
@@ -949,11 +955,36 @@ function checkMamaPromotion(chatId, userId) {
   bot.sendMessage(chatId, '👑 Моя обрести мама! Твоя теперь моя мама навсегда!').catch(() => {});
 }
 
+// Unlike mama, "enemy" isn't sticky — it's a live check (see isEnemy) — so
+// this only fires the announcement on the actual transition into it
+// (oldAttitude wasn't already -100), not every time a further negative
+// delta lands while already there.
+function checkEnemyDeclaration(chatId, from, oldAttitude) {
+  if (oldAttitude <= -100) return;
+  if (!isEnemy(from.id)) return;
+  bot.sendMessage(chatId, `💀 ${actorName(from)}, твоя теперь мой враг! Моя не забывать это никогда! 🖕`).catch(() => {});
+}
+
 // Swaps in the 'mama' phrase pool for whoever holds that title, on the
 // affectionate commands only (play/feed/tease/boobs) — kicking mama still
 // gets the normal kick reaction, that one isn't overridden.
 function mamaCategoryOverride(state, userId, fallbackCategory) {
   return state.mama_user_id && state.mama_user_id === userId ? 'mama' : fallbackCategory;
+}
+
+function isMama(userId) {
+  const state = db.prepare('SELECT mama_user_id FROM troll_state WHERE id = 1').get();
+  return !!state && state.mama_user_id === userId;
+}
+
+// Taught emoji: loving ones for mama, 🖕 for an enemy — appended to
+// whatever dialogue line was about to be sent to/about that specific
+// person. No-op (returns text unchanged) for anyone else.
+function appendRelationshipEmoji(text, userId) {
+  if (userId == null) return text;
+  if (isEnemy(userId)) return `${text} 🖕`;
+  if (isMama(userId)) return `${text} ❤️😍💕`;
+  return text;
 }
 
 // Four tiers by relationship, used uniformly by /tease, the reply-to-troll
@@ -1204,7 +1235,7 @@ function performPlay(chatId, from) {
   if (!checkCommandCooldown(from.id, 'play')) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from));
+    sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from), from.id);
     return;
   }
   db.prepare('UPDATE troll_state SET mood = MIN(100, mood + 10), char_playfulness = MIN(100, char_playfulness + 6), char_anger = MAX(0, char_anger - 4) WHERE id = 1').run();
@@ -1212,7 +1243,7 @@ function performPlay(chatId, from) {
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_play_delta'));
   checkMamaPromotion(chatId, from.id);
-  sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, 'play'), state.stage, 'Моя рада играть с твоя!', actorName(from));
+  sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, 'play'), state.stage, 'Моя рада играть с твоя!', actorName(from), from.id);
 }
 
 // async + awaited sends throughout: without awaiting, two fire-and-forget
@@ -1250,9 +1281,10 @@ async function performKick(chatId, from) {
     // Dodged: no mood/health hit, but the attempt itself still sours the
     // relationship, earns a comeback, and costs the attacker their kick
     // button for an hour.
-    adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
+    const oldAttitude1 = adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
+    checkEnemyDeclaration(chatId, from, oldAttitude1);
     logAction(from.id, from.username || from.first_name, 'snapped_at');
-    await sendCategoryReplyForStage(chatId, pickTeaseCategory(from.id), state.stage, 'Твоя не попасть в моя!', actorName(from));
+    await sendCategoryReplyForStage(chatId, pickTeaseCategory(from.id), state.stage, 'Твоя не попасть в моя!', actorName(from), from.id);
     db.prepare('UPDATE troll_relationships SET kick_blocked_until = ? WHERE user_id = ?').run(now + 3600, from.id);
     return;
   }
@@ -1260,8 +1292,9 @@ async function performKick(chatId, from) {
   const silencedUntil = now + 60 * 60;
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), health = MAX(0, health - 5), silenced_until = ? WHERE id = 1').run(silencedUntil);
   logAction(from.id, from.username || from.first_name, 'kick');
-  adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
-  await sendCategoryReplyForStage(chatId, 'kick', state.stage, 'Твоя злой! Моя обижаться!', actorName(from));
+  const oldAttitude2 = adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
+  checkEnemyDeclaration(chatId, from, oldAttitude2);
+  await sendCategoryReplyForStage(chatId, 'kick', state.stage, 'Твоя злой! Моя обижаться!', actorName(from), from.id);
 
   // 2 landed kicks within an hour: the troll tries to hide from everyone.
   const recentKicks = db.prepare(
@@ -1299,7 +1332,7 @@ function performFeed(chatId, from) {
   if (!checkCommandCooldown(from.id, 'feed')) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from));
+    sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from), from.id);
     return;
   }
   // Completely full (satiety 100): the only case rejected outright — the
@@ -1308,8 +1341,9 @@ function performFeed(chatId, from) {
   if (state.satiety >= 100) {
     logAction(from.id, from.username || from.first_name, 'feed_reject');
     noticeUser(from.id, from.username, from.first_name);
-    adjustAttitude(from.id, getSettingNumber('attitude_feed_reject_delta'));
-    sendCategoryReplyForStage(chatId, 'feed_reject', state.stage, 'Моя сытый! *кидает еда в твоя*', actorName(from));
+    const oldAttitude = adjustAttitude(from.id, getSettingNumber('attitude_feed_reject_delta'));
+    checkEnemyDeclaration(chatId, from, oldAttitude);
+    sendCategoryReplyForStage(chatId, 'feed_reject', state.stage, 'Моя сытый! *кидает еда в твоя*', actorName(from), from.id);
     return;
   }
   // Satiety 90-99: still eats, but it's overeating — same stat gains, plus
@@ -1328,9 +1362,9 @@ function performFeed(chatId, from) {
   adjustAttitude(from.id, getSettingNumber('attitude_feed_delta'));
   checkMamaPromotion(chatId, from.id);
   if (overeating) {
-    sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, 'feed_overeat'), state.stage, 'Ммм, моя переедать, но моя не мочь остановиться...', actorName(from));
+    sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, 'feed_overeat'), state.stage, 'Ммм, моя переедать, но моя не мочь остановиться...', actorName(from), from.id);
   } else {
-    sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, 'feed'), state.stage, 'Ням-ням, спасибо твоя!', actorName(from));
+    sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, 'feed'), state.stage, 'Ням-ням, спасибо твоя!', actorName(from), from.id);
   }
 }
 
@@ -1340,13 +1374,13 @@ function performTease(chatId, from) {
   if (!checkCommandCooldown(from.id, 'tease')) return;
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
-    sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from));
+    sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from), from.id);
     return;
   }
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10), char_anger = MIN(100, char_anger + 8) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'tease');
   noticeUser(from.id, from.username, from.first_name);
-  sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, pickTeaseCategory(from.id)), state.stage, 'Твоя дразнить моя?! Моя злиться!', actorName(from));
+  sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, pickTeaseCategory(from.id)), state.stage, 'Твоя дразнить моя?! Моя злиться!', actorName(from), from.id);
 }
 
 // малыш sees it as food (the joke the whole feature started from); the
@@ -1362,7 +1396,7 @@ function performBoobs(chatId, from) {
   db.prepare('UPDATE troll_state SET char_lust = MIN(100, char_lust + 8) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'boobs');
   noticeUser(from.id, from.username, from.first_name);
-  sendCategoryReply(chatId, mamaCategoryOverride(state, from.id, category), 'Моя видеть еда!', actorName(from));
+  sendCategoryReply(chatId, mamaCategoryOverride(state, from.id, category), 'Моя видеть еда!', actorName(from), from.id);
 }
 
 bot.onText(/\/play\b/, (msg) => {
@@ -1521,7 +1555,9 @@ function findEnemyAmong(entries) {
 // so an enemy is always called out as one, everywhere, automatically.
 function getMentionName(entry) {
   const name = entry.username ? `@${entry.username}` : entry.firstName;
-  return isEnemy(entry.userId) ? `мой враг ${name}` : name;
+  if (isEnemy(entry.userId)) return `мой враг ${name} 🖕`;
+  if (isMama(entry.userId)) return `❤️ мама ${name} 💕`;
+  return name;
 }
 
 // Weighted pick from recentMessages: the more a person is disliked, the more
@@ -1842,7 +1878,10 @@ bot.on('message', (msg) => {
   if (repliedToTroll && msg.text && checkCommandCooldown(msg.from.id, 'teach')) {
     learnPhrase(msg.text, msg.from);
     logAction(msg.from.id, msg.from.username || msg.from.first_name, 'snapped_at');
-    const comeback = pickPhraseForStage(pickTeaseCategory(msg.from.id), state.stage, 'Твоя дразнить моя?! Моя не любить это!');
+    const comeback = appendRelationshipEmoji(
+      pickPhraseForStage(pickTeaseCategory(msg.from.id), state.stage, 'Твоя дразнить моя?! Моя не любить это!'),
+      msg.from.id
+    );
     bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
   }
 
@@ -1861,7 +1900,10 @@ bot.on('message', (msg) => {
 
   if (addressedByName) {
     logAction(msg.from.id, msg.from.username || msg.from.first_name, 'snapped_at');
-    const comeback = pickPhraseForStage(pickTeaseCategory(msg.from.id), state.stage, 'Твоя звать моя? Моя тут!');
+    const comeback = appendRelationshipEmoji(
+      pickPhraseForStage(pickTeaseCategory(msg.from.id), state.stage, 'Твоя звать моя? Моя тут!'),
+      msg.from.id
+    );
     bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
     return;
   }
