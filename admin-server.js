@@ -77,6 +77,10 @@ api.put('/stage', (req, res) => {
       `😈 Дразнили: ${byAction.tease || 0}`,
       `🍈 Показывали сиську: ${byAction.boobs || 0}`,
       `🎯 Тролль дотроллил кого-то: ${byAction.mischief_targeted || 0}`,
+      `💩 Покакал: ${byAction.poop || 0}`,
+      `💦 Пописал: ${byAction.pee || 0}`,
+      `🍽️ Поел сам: ${byAction.self_eat || 0}`,
+      `📖 Научили фраз: ${byAction.teach || 0}`,
     ].join('\n');
     bot.sendMessage(state.chat_id, summary).catch(() => {});
   }

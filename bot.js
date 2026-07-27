@@ -956,6 +956,7 @@ function learnPhrase(text, from) {
   db.prepare(
     'INSERT INTO troll_learned_phrases (text, taught_by_user_id, taught_by_username) VALUES (?, ?, ?)'
   ).run(text, from.id, from.username || from.first_name);
+  logAction(from.id, from.username || from.first_name, 'teach');
 }
 
 // --- Growth ---
@@ -1608,6 +1609,7 @@ const WEIGHT_FLOOR = 30;
 
 function triggerAutoEat(chatId, stage) {
   applyEatStats(false);
+  logAction(0, 'тролль', 'self_eat');
   sendCategoryReplyForStage(chatId, 'self_eat', stage, 'Моя найти еда и скушать сама!', null);
 }
 
@@ -1625,6 +1627,7 @@ function triggerPoop(chatId) {
     'UPDATE troll_state SET mood = MIN(100, mood + ?), weight = MAX(?, weight - ?), poop_game_ends_at = ? WHERE id = 1'
   ).run(moodGain, WEIGHT_FLOOR, weightLoss, gameEndsAt);
   poopGameCandidates.clear();
+  logAction(0, 'тролль', 'poop');
   // Pure in-character flavor — deliberately doesn't mention the "whoever
   // writes next becomes a candidate" mechanic, so it reads as a surprise
   // later rather than a warning to stay quiet right now.
@@ -1650,6 +1653,7 @@ function resolvePoopGameIfDue(state, now) {
 function triggerPee(chatId) {
   const weightLoss = getSettingNumber('weight_loss_per_pee');
   db.prepare('UPDATE troll_state SET weight = MAX(?, weight - ?) WHERE id = 1').run(WEIGHT_FLOOR, weightLoss);
+  logAction(0, 'тролль', 'pee');
   if (recentMessages.length > 0 && Math.random() < 0.5) {
     const targetInfo = pickMischiefTarget();
     const target = getMentionName(targetInfo.entry);
