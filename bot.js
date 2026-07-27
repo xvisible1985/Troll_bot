@@ -345,7 +345,7 @@ const DEFAULT_SETTINGS = {
   poop_action_interval_minutes: '90',
   pee_action_interval_minutes: '60',
   poop_mood_gain: '8',
-  command_cooldown_seconds: '3',
+  command_cooldown_seconds: '60',
   attitude_fas_delta: '-5',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
