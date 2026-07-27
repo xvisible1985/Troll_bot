@@ -1230,6 +1230,7 @@ async function performKick(chatId, from) {
     // relationship, earns a comeback, and costs the attacker their kick
     // button for an hour.
     adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
+    logAction(from.id, from.username || from.first_name, 'snapped_at');
     await sendCategoryReplyForStage(chatId, pickTeaseCategory(from.id), state.stage, 'Твоя не попасть в моя!', actorName(from));
     db.prepare('UPDATE troll_relationships SET kick_blocked_until = ? WHERE user_id = ?').run(now + 3600, from.id);
     return;
@@ -1645,6 +1646,7 @@ function resolvePoopGameIfDue(state, now) {
   const loser = candidates[Math.floor(Math.random() * candidates.length)];
   const name = loser.username ? `@${loser.username}` : loser.firstName;
   bot.sendMessage(state.chat_id, `💩 Ой-ой, ${name} вступить в моя какашка! Твоя теперь вонять целый час...`).catch(() => {});
+  logAction(loser.userId, loser.username || loser.firstName, 'poop_victim');
   markSmelly(loser.userId, 3600);
 }
 
@@ -1658,6 +1660,7 @@ function triggerPee(chatId) {
     const targetInfo = pickMischiefTarget();
     const target = getMentionName(targetInfo.entry);
     bot.sendMessage(chatId, `💦 Моя метко пометить территория, заодно окатить ${target}!`).catch(() => {});
+    logAction(targetInfo.entry.userId, targetInfo.entry.username || targetInfo.entry.firstName, 'pee_target');
     markSmelly(targetInfo.entry.userId, 3600);
   } else {
     bot.sendMessage(chatId, '💦 Моя пометить территория под мостом.').catch(() => {});
@@ -1782,6 +1785,7 @@ bot.on('message', (msg) => {
   const repliedToTroll = !!(msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === botUserId);
   if (repliedToTroll && msg.text && checkCommandCooldown(msg.from.id, 'teach')) {
     learnPhrase(msg.text, msg.from);
+    logAction(msg.from.id, msg.from.username || msg.from.first_name, 'snapped_at');
     const comeback = pickPhraseForStage(pickTeaseCategory(msg.from.id), state.stage, 'Твоя дразнить моя?! Моя не любить это!');
     bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
   }
@@ -1800,6 +1804,7 @@ bot.on('message', (msg) => {
   if (getSetting('paused') === '1' || isSilenced(state) || isNightNow()) return;
 
   if (addressedByName) {
+    logAction(msg.from.id, msg.from.username || msg.from.first_name, 'snapped_at');
     const comeback = pickPhraseForStage(pickTeaseCategory(msg.from.id), state.stage, 'Твоя звать моя? Моя тут!');
     bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
     return;

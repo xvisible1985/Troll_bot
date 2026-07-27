@@ -63,24 +63,39 @@ api.put('/stage', (req, res) => {
 
   if (stageNum !== state.stage) {
     const since = state.stage_started_at || state.born_at || 0;
-    const counts = db.prepare(
-      'SELECT action, COUNT(*) AS n FROM troll_actions WHERE created_at >= ? GROUP BY action'
+    // Grouped by (action, user) rather than just action — the point of this
+    // report is to show WHO did what, not just an anonymous total.
+    const rows = db.prepare(
+      'SELECT action, username, COUNT(*) AS n FROM troll_actions WHERE created_at >= ? GROUP BY action, user_id ORDER BY action, n DESC'
     ).all(since);
     const byAction = {};
-    for (const row of counts) byAction[row.action] = row.n;
-    const feedTotal = (byAction.feed || 0) + (byAction.feed_overeat || 0);
+    for (const row of rows) {
+      (byAction[row.action] = byAction[row.action] || []).push({ username: row.username || '?', n: row.n });
+    }
+    const totalFor = (action) => (byAction[action] || []).reduce((sum, r) => sum + r.n, 0);
+    const peopleFor = (action) => {
+      const people = byAction[action] || [];
+      return people.length > 0 ? people.map((r) => `${r.username}×${r.n}`).join(', ') : '—';
+    };
+    const feedTotal = totalFor('feed') + totalFor('feed_overeat');
     const summary = [
       `📊 Итоги стадии «${STAGE_NAMES[state.stage]}»:`,
-      `🎮 Играли: ${byAction.play || 0}`,
-      `🍗 Кормили: ${feedTotal} (переел: ${byAction.feed_overeat || 0}, отказано сытому: ${byAction.feed_reject || 0})`,
-      `👢 Пинали: ${byAction.kick || 0}`,
-      `😈 Дразнили: ${byAction.tease || 0}`,
-      `🍈 Показывали сиську: ${byAction.boobs || 0}`,
-      `🎯 Тролль дотроллил кого-то: ${byAction.mischief_targeted || 0}`,
-      `💩 Покакал: ${byAction.poop || 0}`,
-      `💦 Пописал: ${byAction.pee || 0}`,
-      `🍽️ Поел сам: ${byAction.self_eat || 0}`,
-      `📖 Научили фраз: ${byAction.teach || 0}`,
+      `🎮 Играли (${totalFor('play')}): ${peopleFor('play')}`,
+      `🍗 Кормили (${feedTotal}): ${peopleFor('feed')}`,
+      `🍽️ Перекормили (${totalFor('feed_overeat')}): ${peopleFor('feed_overeat')}`,
+      `🚫 Отказано сытому (${totalFor('feed_reject')}): ${peopleFor('feed_reject')}`,
+      `👢 Пинали (${totalFor('kick')}): ${peopleFor('kick')}`,
+      `😈 Дразнили (${totalFor('tease')}): ${peopleFor('tease')}`,
+      `🍈 Показывали сиську (${totalFor('boobs')}): ${peopleFor('boobs')}`,
+      `😏 Огрызнулся троль (${totalFor('snapped_at')}): ${peopleFor('snapped_at')}`,
+      `🎯 Дотроллил (${totalFor('mischief_targeted')}): ${peopleFor('mischief_targeted')}`,
+      `💦 Описал (${totalFor('pee_target')}): ${peopleFor('pee_target')}`,
+      `💩 В какашку вступил (${totalFor('poop_victim')}): ${peopleFor('poop_victim')}`,
+      `📖 Научили фраз (${totalFor('teach')}): ${peopleFor('teach')}`,
+      `— — —`,
+      `💩 Покакал всего: ${totalFor('poop')}`,
+      `💦 Пописал всего: ${totalFor('pee')}`,
+      `🍽️ Поел сам: ${totalFor('self_eat')}`,
     ].join('\n');
     bot.sendMessage(state.chat_id, summary).catch(() => {});
   }
