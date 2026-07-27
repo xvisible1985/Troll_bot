@@ -6,7 +6,7 @@ const multer = require('multer');
 const { PORTRAIT_PATH } = require('./card');
 const {
   db, getSetting, setSetting, getAllSettings, DEFAULT_SETTINGS_KEYS,
-  STAGE_NAMES, getWeight, moodWord, satietyWord, getActivityLine, trollify, rollTrollTry,
+  STAGE_NAMES, moodWord, satietyWord, getActivityLine, trollify, rollTrollTry,
 } = require('./admin-lib');
 const { bot, requireAdmin, fetchTelegramFile } = require('./admin-auth');
 
@@ -42,7 +42,7 @@ api.get('/status', (req, res) => {
     moodWord: moodWord(state.mood),
     satiety: state.satiety,
     satietyWord: satietyWord(state.satiety),
-    weight: getWeight(state.feed_count),
+    weight: state.weight,
     stage: state.stage,
     stageName: STAGE_NAMES[state.stage],
     activity: getActivityLine(state),

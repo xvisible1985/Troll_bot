@@ -12,6 +12,9 @@ const DEFAULT_SETTINGS_KEYS = [
   'attitude_kick_delta', 'attitude_escalation_threshold',
   'satiety_decay_per_hour', 'satiety_feed_gain', 'satiety_suckle_gain', 'hunger_action_interval_minutes',
   'attitude_feed_reject_delta', 'learned_phrase_reply_chance',
+  'weight_gain_per_feed', 'weight_loss_per_poop', 'weight_loss_per_pee',
+  'eat_action_interval_minutes', 'poop_action_interval_minutes', 'pee_action_interval_minutes',
+  'poop_mood_gain',
 ];
 
 function getSetting(key) {
@@ -40,11 +43,6 @@ function getAllSettings() {
 // rather than refactoring the already-deployed, working bot.js just to share
 // code with a new admin tool.) ---
 const STAGE_NAMES = { 1: 'малыш', 2: 'молодой', 3: 'взрослый', 4: 'старый' };
-
-function getWeight(feedCount) {
-  const capped = Math.min(feedCount, 90);
-  return Math.round(30 + (capped / 90) * 370);
-}
 
 function moodWord(mood) {
   if (mood >= 70) return 'весёлый';
@@ -130,7 +128,6 @@ module.exports = {
   setSetting,
   getAllSettings,
   STAGE_NAMES,
-  getWeight,
   moodWord,
   satietyWord,
   isSilenced,

@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { SocksProxyAgent } = require('socks-proxy-agent');
@@ -8,6 +9,30 @@ const { renderTrollCard } = require('./card');
 const token = process.env.BOT_TOKEN;
 const proxy = process.env.PROXY_URL;
 const ADMIN_CHAT_ID = Number(process.env.ADMIN_CHAT_ID);
+
+// --- Cross-bot "smell" integration (separate process, sibling repo) ---
+// tg-bot (a different, already-running bot on this server) owns mutes.db
+// and reads this table to append a "smells of troll pee" reply to a marked
+// user's messages. Both sides create the table defensively (order-of-deploy
+// independent) and both set busy_timeout, since two Node processes writing
+// the same SQLite file without it risk SQLITE_BUSY under rare contention.
+const tgBotDb = new Database(process.env.TG_BOT_DB_PATH || path.join(__dirname, '..', 'tg-bot', 'mutes.db'));
+tgBotDb.pragma('busy_timeout = 5000');
+tgBotDb.exec(`
+  CREATE TABLE IF NOT EXISTS troll_smell (
+    user_id INTEGER PRIMARY KEY,
+    marked_at INTEGER DEFAULT (strftime('%s','now')),
+    expires_at INTEGER NOT NULL
+  )
+`);
+
+function markSmelly(userId, durationSeconds) {
+  const expiresAt = Math.floor(Date.now() / 1000) + durationSeconds;
+  tgBotDb.prepare(
+    'INSERT INTO troll_smell (user_id, marked_at, expires_at) VALUES (?, strftime(\'%s\',\'now\'), ?) ' +
+    'ON CONFLICT(user_id) DO UPDATE SET marked_at = strftime(\'%s\',\'now\'), expires_at = excluded.expires_at'
+  ).run(userId, expiresAt);
+}
 
 let agent;
 if (proxy) {
@@ -144,9 +169,20 @@ db.exec(`
     char_anger INTEGER NOT NULL DEFAULT 0,
     char_lust INTEGER NOT NULL DEFAULT 0,
     char_naughtiness INTEGER NOT NULL DEFAULT 0,
+    weight INTEGER NOT NULL DEFAULT 30,
     born_at INTEGER DEFAULT (strftime('%s','now'))
   )
 `);
+// Weight used to be purely derived from feed_count (never decreased); now
+// eating/pooping/peeing adjust it directly, so it has to be a real stored
+// value. Backfills using the OLD formula on the one-time migration so an
+// already-deployed troll's weight doesn't visibly jump on upgrade.
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN weight INTEGER NOT NULL DEFAULT 30');
+  db.exec(`
+    UPDATE troll_state SET weight = CAST(30 + (MIN(feed_count, 90) / 90.0) * 370 AS INTEGER)
+  `);
+} catch {}
 // Growth stage used to be derived live from feed_count; now it's an
 // admin-controlled value set from the panel (see /api/stage), independent
 // of feed_count. This migration only ever runs once, the moment the column
@@ -190,6 +226,23 @@ for (const column of ['char_appetite', 'char_playfulness', 'char_anger', 'char_l
 try {
   db.exec('ALTER TABLE troll_state ADD COLUMN kick_locked_until INTEGER');
 } catch {}
+// Cooldown timestamps for the three autonomous digestion-cycle ticks (eat/
+// poop/pee — see backgroundTick), plus the poop mini-game's "candidate
+// window" end time. The candidate LIST itself stays in-memory (see
+// poopGameCandidates below) — losing it on a rare mid-game restart just
+// means that particular game quietly fizzles, not worth persisting for.
+for (const column of ['last_eat_action_at', 'last_poop_action_at', 'last_pee_action_at', 'poop_game_ends_at']) {
+  try {
+    db.exec(`ALTER TABLE troll_state ADD COLUMN ${column} INTEGER`);
+  } catch {}
+}
+// Targeted trolling window from "Тролль Фас" (see below) — troll_fas_until
+// gates the window itself, troll_fas_target_user_id records who.
+for (const column of ['troll_fas_until', 'troll_fas_target_user_id']) {
+  try {
+    db.exec(`ALTER TABLE troll_state ADD COLUMN ${column} INTEGER`);
+  } catch {}
+}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -267,11 +320,18 @@ const DEFAULT_SETTINGS = {
   attitude_kick_delta: '-15',
   attitude_escalation_threshold: '-30',
   satiety_decay_per_hour: '4',
-  satiety_feed_gain: '35',
+  satiety_feed_gain: '10',
   satiety_suckle_gain: '20',
   hunger_action_interval_minutes: '30',
   attitude_feed_reject_delta: '-10',
   learned_phrase_reply_chance: '8',
+  weight_gain_per_feed: '5',
+  weight_loss_per_poop: '8',
+  weight_loss_per_pee: '2',
+  eat_action_interval_minutes: '45',
+  poop_action_interval_minutes: '90',
+  pee_action_interval_minutes: '60',
+  poop_mood_gain: '8',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -401,6 +461,11 @@ const PHRASE_SEED = {
     'пососать молоко у {user}',
     'высосать молоко из {user}',
     'напиться молоко у {user}',
+  ],
+  self_eat: [
+    'Моя найти вкусный корешок под мостом и скушать сама!',
+    'Моя сама находить еда — не всегда ждать, пока твоя покормить!',
+    'Ням, моя перекусить немного, без посторонний помощь!',
   ],
   activity_awake: [
     'бродит под мостом',
@@ -659,11 +724,6 @@ const STAGE_HEALTH_REGEN_KEYS = {
   4: 'health_regen_old',
 };
 
-function getWeight(feedCount) {
-  const capped = Math.min(feedCount, 90);
-  return Math.round(30 + (capped / 90) * 370);
-}
-
 function moodWord(mood) {
   if (mood >= 70) return 'весёлый';
   if (mood >= 40) return 'нормальный';
@@ -793,7 +853,6 @@ bot.onText(/\/troll\b/, async (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет. Позови его через /troll_here.');
   if (msg.chat.id !== state.chat_id) return;
-  const displayWeight = Math.round(getWeight(state.feed_count) + (Math.random() * 6 - 3));
   const relRow = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(msg.from.id);
   const attitude = relRow ? relRow.attitude : 0;
   const activity = getActivityLine(state);
@@ -812,7 +871,7 @@ bot.onText(/\/troll\b/, async (msg) => {
       attitude,
       attitudeWord: attitudeWord(attitude),
       stageName: STAGE_NAMES[state.stage],
-      weight: displayWeight,
+      weight: state.weight,
       activity,
     });
     await bot.sendPhoto(msg.chat.id, buffer, TROLL_ACTION_KEYBOARD);
@@ -821,7 +880,7 @@ bot.onText(/\/troll\b/, async (msg) => {
     const lines = [
       `❤️ Здоровье: ${state.health}/100`,
       `🍖 Сытость: ${state.satiety}/100 (${satietyWord(state.satiety)})`,
-      `⚖️ Вес: ${displayWeight} кг`,
+      `⚖️ Вес: ${state.weight} кг`,
       `😊 Настроение: ${moodWord(state.mood)}`,
       `🌱 Стадия: ${STAGE_NAMES[state.stage]}`,
       `🎭 Занятие: ${activity}`,
@@ -930,6 +989,23 @@ function performKick(chatId, from) {
   }
 }
 
+// Shared by performFeed's normal/overeating branches and the autonomous
+// self-eat tick (triggerAutoEat) — same mood/satiety/weight effects
+// regardless of whether the troll was fed or found food on its own.
+function applyEatStats(overeating) {
+  const satietyGain = getSettingNumber('satiety_feed_gain');
+  const weightGain = getSettingNumber('weight_gain_per_feed');
+  if (overeating) {
+    db.prepare(
+      'UPDATE troll_state SET mood = MIN(100, mood + 5), satiety = MIN(100, satiety + ?), weight = MIN(500, weight + ?), char_appetite = MIN(100, char_appetite + 6) WHERE id = 1'
+    ).run(satietyGain, weightGain);
+  } else {
+    db.prepare(
+      'UPDATE troll_state SET mood = MIN(100, mood + 5), satiety = MIN(100, satiety + ?), weight = MIN(500, weight + ?) WHERE id = 1'
+    ).run(satietyGain, weightGain);
+  }
+}
+
 function performFeed(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
@@ -950,20 +1026,15 @@ function performFeed(chatId, from) {
   }
   // Satiety 90-99: still eats, but it's overeating — same stat gains, plus
   // it grows the troll's appetite trait (a lasting personality effect, not
-  // a momentary one like mood/health).
+  // a momentary one like mood/health). Health is deliberately NOT bumped
+  // here anymore — it's governed purely by the satiety<30 decay / per-stage
+  // regen tick now (see backgroundTick), so eating keeps satiety up rather
+  // than directly patching health.
   const overeating = state.satiety >= 90;
   const newFeedCount = state.feed_count + 1;
   const now = Math.floor(Date.now() / 1000);
-  const satietyGain = getSettingNumber('satiety_feed_gain');
-  if (overeating) {
-    db.prepare(
-      'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), satiety = MIN(100, satiety + ?), char_appetite = MIN(100, char_appetite + 6), last_fed_at = ? WHERE id = 1'
-    ).run(newFeedCount, satietyGain, now);
-  } else {
-    db.prepare(
-      'UPDATE troll_state SET feed_count = ?, health = MIN(100, health + 30), mood = MIN(100, mood + 5), satiety = MIN(100, satiety + ?), last_fed_at = ? WHERE id = 1'
-    ).run(newFeedCount, satietyGain, now);
-  }
+  db.prepare('UPDATE troll_state SET feed_count = ?, last_fed_at = ? WHERE id = 1').run(newFeedCount, now);
+  applyEatStats(overeating);
   logAction(from.id, from.username || from.first_name, overeating ? 'feed_overeat' : 'feed');
   noticeUser(from.id, from.username, from.first_name);
   adjustAttitude(from.id, getSettingNumber('attitude_feed_delta'));
@@ -1032,6 +1103,61 @@ bot.onText(/\/teach ([\s\S]+)/, (msg, match) => {
   if (!text) return;
   learnPhrase(text, msg.from);
   bot.sendMessage(msg.chat.id, `Тролль запомнил: "${text}"`).catch(() => {});
+});
+
+// "Тролль Фас <@цель>" / "тролль фас" as a reply — no slash needed, any
+// case, tolerates both "троль" and "тролль". Only usable by people the
+// troll adores (tease_adoring tier, attitude >= 70); everyone else gets a
+// dismissive rhyme instead. On success, targeted mischief focuses on that
+// one person for 30 minutes (see getFasTargetInfo/triggerMischief).
+const TROLL_FAS_REGEX = /(?:^|\s)тролл?ь\s+фас(?:\s+@?(\S+))?/i;
+
+bot.onText(TROLL_FAS_REGEX, async (msg, match) => {
+  const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
+  if (!state || msg.chat.id !== state.chat_id) return;
+
+  if (pickTeaseCategory(msg.from.id) !== 'tease_adoring') {
+    bot.sendMessage(
+      msg.chat.id,
+      `${actorName(msg.from)}, твоя мне не указ, вали отсюда сейчас!`,
+      { reply_to_message_id: msg.message_id }
+    ).catch(() => {});
+    return;
+  }
+
+  let target = null;
+  if (msg.reply_to_message && msg.reply_to_message.from) {
+    target = {
+      userId: msg.reply_to_message.from.id,
+      username: msg.reply_to_message.from.username,
+      firstName: msg.reply_to_message.from.first_name,
+    };
+  } else if (match[1]) {
+    const handle = match[1].replace(/^@/, '');
+    const row = db.prepare(
+      'SELECT user_id, username, first_name FROM troll_relationships WHERE LOWER(username) = LOWER(?)'
+    ).get(handle);
+    if (row) {
+      target = { userId: row.user_id, username: row.username, firstName: row.first_name };
+    } else {
+      // Best-effort fallback for someone the troll has never seen — only
+      // works if Telegram considers the username resolvable to this bot.
+      try {
+        const chat = await bot.getChat('@' + handle);
+        target = { userId: chat.id, username: chat.username, firstName: chat.first_name };
+      } catch {}
+    }
+  }
+
+  if (!target) {
+    bot.sendMessage(msg.chat.id, 'Моя не понимать, кого травить — укажи @юзернейм или ответь на его сообщение.').catch(() => {});
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare('UPDATE troll_state SET troll_fas_until = ?, troll_fas_target_user_id = ? WHERE id = 1').run(now + 30 * 60, target.userId);
+  const targetName = target.username ? `@${target.username}` : target.firstName;
+  bot.sendMessage(msg.chat.id, `🐕 ФАС! Тролль спущен на ${targetName} — 30 минут не будет покоя!`).catch(() => {});
 });
 
 // Buttons on the /troll status card (callback_data-type inline buttons work
@@ -1112,6 +1238,20 @@ function pickMischiefTarget() {
 const TARGETED_PHRASE_TIER_CATEGORIES = ['targeted_phrase_mild', 'targeted_phrase_medium', 'targeted_phrase_mean'];
 const TARGETED_ACTION_TIER_CATEGORIES = ['targeted_action_mild', 'targeted_action_medium', 'targeted_action_mean'];
 
+// "Тролль Фас" override (see the onText handler further down) — while
+// active, targeted mischief always aims at this one person instead of the
+// normal weighted-random pick. Same {entry, attitude} shape as
+// pickMischiefTarget so it can be dropped in directly.
+function getFasTargetInfo(state) {
+  const now = Math.floor(Date.now() / 1000);
+  if (!state.troll_fas_until || state.troll_fas_until < now || !state.troll_fas_target_user_id) return null;
+  const row = db.prepare(
+    'SELECT user_id, username, first_name, attitude FROM troll_relationships WHERE user_id = ?'
+  ).get(state.troll_fas_target_user_id);
+  if (!row) return null;
+  return { entry: { userId: row.user_id, username: row.username, firstName: row.first_name }, attitude: row.attitude };
+}
+
 function triggerMischief(chatId) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   const stage = state.stage;
@@ -1122,8 +1262,9 @@ function triggerMischief(chatId) {
   // meaner tier. Purely cosmetic/display for now — nothing reads it back.
   db.prepare('UPDATE troll_state SET char_naughtiness = MIN(100, char_naughtiness + ?) WHERE id = 1').run(tier + 1);
 
-  if (recentMessages.length > 0 && Math.random() < 0.5) {
-    const targetInfo = pickMischiefTarget();
+  const fasTargetInfo = getFasTargetInfo(state);
+  if (fasTargetInfo || (recentMessages.length > 0 && Math.random() < 0.5)) {
+    const targetInfo = fasTargetInfo || pickMischiefTarget();
     const target = getMentionName(targetInfo.entry);
     const escalationThreshold = getSettingNumber('attitude_escalation_threshold');
     const maxTier = STAGE_MAX_MISCHIEF_TIER[stage] ?? 2;
@@ -1188,6 +1329,63 @@ function triggerHungryGrab(chatId) {
   }
 }
 
+// --- Digestion cycle: eat / poop / pee (all autonomous, independent ticks) ---
+const WEIGHT_FLOOR = 30;
+
+function triggerAutoEat(chatId) {
+  applyEatStats(false);
+  sendCategoryReply(chatId, 'self_eat', 'Моя найти еда и скушать сама!', null);
+}
+
+// Candidate pool for the current poop mini-game, populated by the message
+// handler while troll_state.poop_game_ends_at is in the future. In-memory
+// only (like recentMessages) — a restart mid-game just quietly fizzles it,
+// not worth persisting a whole participant list for.
+const poopGameCandidates = new Map();
+
+function triggerPoop(chatId) {
+  const weightLoss = getSettingNumber('weight_loss_per_poop');
+  const moodGain = getSettingNumber('poop_mood_gain');
+  const gameEndsAt = Math.floor(Date.now() / 1000) + 3600;
+  db.prepare(
+    'UPDATE troll_state SET mood = MIN(100, mood + ?), weight = MAX(?, weight - ?), poop_game_ends_at = ? WHERE id = 1'
+  ).run(moodGain, WEIGHT_FLOOR, weightLoss, gameEndsAt);
+  poopGameCandidates.clear();
+  bot.sendMessage(
+    chatId,
+    '💩 Тролль накакал и заминировал окрестности под мостом! Целый час рискует вступить в какашку любой, кто напишет в чат...'
+  ).catch(() => {});
+}
+
+// Called every backgroundTick regardless of paused/silenced — a running
+// game clock shouldn't stall just because shalости are paused.
+function resolvePoopGameIfDue(state, now) {
+  if (!state.poop_game_ends_at || now < state.poop_game_ends_at) return;
+  db.prepare('UPDATE troll_state SET poop_game_ends_at = NULL WHERE id = 1').run();
+  const candidates = [...poopGameCandidates.values()];
+  poopGameCandidates.clear();
+  if (candidates.length === 0) return;
+  const loser = candidates[Math.floor(Math.random() * candidates.length)];
+  const name = loser.username ? `@${loser.username}` : loser.firstName;
+  bot.sendMessage(state.chat_id, `💩 ${name} вступил в какашку тролля! Теперь от твоя вонять целый час...`).catch(() => {});
+  markSmelly(loser.userId, 3600);
+}
+
+// Weighted random target (same pool/weighting as targeted mischief) half
+// the time; ambient/untargeted the other half.
+function triggerPee(chatId) {
+  const weightLoss = getSettingNumber('weight_loss_per_pee');
+  db.prepare('UPDATE troll_state SET weight = MAX(?, weight - ?) WHERE id = 1').run(WEIGHT_FLOOR, weightLoss);
+  if (recentMessages.length > 0 && Math.random() < 0.5) {
+    const targetInfo = pickMischiefTarget();
+    const target = getMentionName(targetInfo.entry);
+    bot.sendMessage(chatId, `💦 Тролль метко пометил территорию, заодно окатив ${target}!`).catch(() => {});
+    markSmelly(targetInfo.entry.userId, 3600);
+  } else {
+    bot.sendMessage(chatId, '💦 Тролль пометил территорию под мостом.').catch(() => {});
+  }
+}
+
 function isNightNow() {
   const hour = new Date().getHours();
   const start = getSettingNumber('sleep_start');
@@ -1229,6 +1427,10 @@ function backgroundTick() {
     }
   }
 
+  // A running poop-game clock resolves on schedule even while paused —
+  // it's finishing something already started, not a new shalость.
+  resolvePoopGameIfDue(state, now);
+
   if (getSetting('paused') !== '1' && !isSilenced(state)) {
     const intervalSeconds = getSettingNumber('mischief_interval_hours') * 3600;
     if (!state.last_mischief_at || now - state.last_mischief_at >= intervalSeconds) {
@@ -1252,6 +1454,26 @@ function backgroundTick() {
         db.prepare('UPDATE troll_state SET last_hunger_action_at = ? WHERE id = 1').run(now);
       }
     }
+
+    // Autonomous eat/poop/pee — independent cooldowns, each fires on its
+    // own schedule regardless of the others.
+    const eatIntervalSeconds = getSettingNumber('eat_action_interval_minutes') * 60;
+    if (state.satiety < 70 && (!state.last_eat_action_at || now - state.last_eat_action_at >= eatIntervalSeconds)) {
+      triggerAutoEat(state.chat_id);
+      db.prepare('UPDATE troll_state SET last_eat_action_at = ? WHERE id = 1').run(now);
+    }
+
+    const poopIntervalSeconds = getSettingNumber('poop_action_interval_minutes') * 60;
+    if (!state.poop_game_ends_at && (!state.last_poop_action_at || now - state.last_poop_action_at >= poopIntervalSeconds)) {
+      triggerPoop(state.chat_id);
+      db.prepare('UPDATE troll_state SET last_poop_action_at = ? WHERE id = 1').run(now);
+    }
+
+    const peeIntervalSeconds = getSettingNumber('pee_action_interval_minutes') * 60;
+    if (!state.last_pee_action_at || now - state.last_pee_action_at >= peeIntervalSeconds) {
+      triggerPee(state.chat_id);
+      db.prepare('UPDATE troll_state SET last_pee_action_at = ? WHERE id = 1').run(now);
+    }
   }
 }
 
@@ -1265,6 +1487,14 @@ bot.on('message', (msg) => {
   if (!state || msg.chat.id !== state.chat_id) return;
   pushRecentMessage({ userId: msg.from.id, username: msg.from.username, firstName: msg.from.first_name });
   noticeUser(msg.from.id, msg.from.username, msg.from.first_name);
+
+  // Poop mini-game: while a game clock is running, anyone who writes
+  // becomes a candidate to be randomly picked as the "loser" (see
+  // resolvePoopGameIfDue in backgroundTick).
+  const nowForGame = Math.floor(Date.now() / 1000);
+  if (state.poop_game_ends_at && nowForGame < state.poop_game_ends_at) {
+    poopGameCandidates.set(msg.from.id, { userId: msg.from.id, username: msg.from.username, firstName: msg.from.first_name });
+  }
 
   // Passive alternative to /teach: replying directly to anything the troll
   // sent (a dialogue line or an autonomous mischief message) teaches it
@@ -1283,7 +1513,9 @@ bot.on('message', (msg) => {
   // otherwise carry stale lastIndex state across .test() calls on a shared
   // one. Takes priority over the periodic mischief/learned-phrase chatter
   // below when both would fire on the same message.
-  const addressedByName = !repliedToTroll && wordRegex('тролль').test(msg.text || '');
+  // Excludes "Тролль Фас" messages — that command sends its own dedicated
+  // response (see the onText handler above), no need for a second reply.
+  const addressedByName = !repliedToTroll && wordRegex('тролль').test(msg.text || '') && !TROLL_FAS_REGEX.test(msg.text || '');
 
   const newCount = state.message_count + 1;
   db.prepare('UPDATE troll_state SET message_count = ? WHERE id = 1').run(newCount);

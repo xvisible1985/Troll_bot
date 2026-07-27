@@ -50,6 +50,13 @@ const SETTING_LABELS = {
   satiety_suckle_gain: 'Сытость от сосания молока',
   hunger_action_interval_minutes: 'Интервал голодного действия, мин',
   attitude_feed_reject_delta: 'Отношение: кормление сытого',
+  weight_gain_per_feed: 'Вес от кормления',
+  weight_loss_per_poop: 'Потеря веса от какашки',
+  weight_loss_per_pee: 'Потеря веса от пописа',
+  eat_action_interval_minutes: 'Интервал самостоятельной еды, мин',
+  poop_action_interval_minutes: 'Интервал какашки, мин',
+  pee_action_interval_minutes: 'Интервал пописа, мин',
+  poop_mood_gain: 'Настроение от какашки',
 };
 const SETTING_RANGES = {
   naughtiness: [1, 10, 1],
@@ -71,6 +78,13 @@ const SETTING_RANGES = {
   satiety_suckle_gain: [5, 50, 5],
   hunger_action_interval_minutes: [5, 120, 5],
   attitude_feed_reject_delta: [-40, 0, 1],
+  weight_gain_per_feed: [1, 20, 1],
+  weight_loss_per_poop: [1, 30, 1],
+  weight_loss_per_pee: [0, 10, 1],
+  eat_action_interval_minutes: [10, 180, 10],
+  poop_action_interval_minutes: [15, 240, 15],
+  pee_action_interval_minutes: [15, 240, 15],
+  poop_mood_gain: [0, 20, 1],
 };
 
 async function loadStatus() {
