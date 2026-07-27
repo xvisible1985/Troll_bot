@@ -183,7 +183,8 @@ db.exec(`
     char_lust INTEGER NOT NULL DEFAULT 0,
     char_naughtiness INTEGER NOT NULL DEFAULT 0,
     weight INTEGER NOT NULL DEFAULT 30,
-    born_at INTEGER DEFAULT (strftime('%s','now'))
+    born_at INTEGER DEFAULT (strftime('%s','now')),
+    stage_started_at INTEGER DEFAULT (strftime('%s','now'))
   )
 `);
 // Weight used to be purely derived from feed_count (never decreased); now
@@ -261,6 +262,14 @@ for (const column of ['troll_fas_until', 'troll_fas_target_user_id']) {
 // drops back down.
 try {
   db.exec('ALTER TABLE troll_state ADD COLUMN mama_user_id INTEGER');
+} catch {}
+// When the current stage started — lets the admin panel report "what
+// happened this stage" (kicks/feeds/plays/etc. since this timestamp) right
+// before switching to a new one. Backfilled to born_at on migration so an
+// already-deployed troll gets a sensible starting point instead of NULL.
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN stage_started_at INTEGER');
+  db.exec('UPDATE troll_state SET stage_started_at = born_at');
 } catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_actions (
@@ -1533,6 +1542,7 @@ function triggerMischief(chatId) {
     const escalationThreshold = getSettingNumber('attitude_escalation_threshold');
     const maxTier = STAGE_MAX_MISCHIEF_TIER[stage] ?? 2;
     const effectiveTier = targetInfo.attitude <= escalationThreshold ? Math.min(maxTier, tier + 1) : tier;
+    logAction(targetInfo.entry.userId, targetInfo.entry.username || targetInfo.entry.firstName, 'mischief_targeted');
     if (Math.random() < 0.5) {
       const phraseCategory = TARGETED_PHRASE_TIER_CATEGORIES[effectiveTier];
       const sticker = Math.random() < 0.5 ? pickStickerForStage(phraseCategory, stage) : null;

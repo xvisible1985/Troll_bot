@@ -51,11 +51,38 @@ api.get('/status', (req, res) => {
 });
 
 // Stage is admin-controlled (set via this endpoint), not derived from
-// feed_count — see the migration note in bot.js's schema section.
+// feed_count — see the migration note in bot.js's schema section. Changing
+// it also posts a "stage report card" to the public chat — everything
+// logged in troll_actions since stage_started_at — before resetting the
+// clock for the new stage.
 api.put('/stage', (req, res) => {
   const stageNum = Number(req.body && req.body.stage);
   if (![1, 2, 3, 4].includes(stageNum)) return res.status(400).json({ error: 'stage must be 1-4' });
-  const info = db.prepare('UPDATE troll_state SET stage = ? WHERE id = 1').run(stageNum);
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (!state) return res.status(404).json({ error: 'no troll yet' });
+
+  if (stageNum !== state.stage) {
+    const since = state.stage_started_at || state.born_at || 0;
+    const counts = db.prepare(
+      'SELECT action, COUNT(*) AS n FROM troll_actions WHERE created_at >= ? GROUP BY action'
+    ).all(since);
+    const byAction = {};
+    for (const row of counts) byAction[row.action] = row.n;
+    const feedTotal = (byAction.feed || 0) + (byAction.feed_overeat || 0);
+    const summary = [
+      `📊 Итоги стадии «${STAGE_NAMES[state.stage]}»:`,
+      `🎮 Играли: ${byAction.play || 0}`,
+      `🍗 Кормили: ${feedTotal} (переел: ${byAction.feed_overeat || 0}, отказано сытому: ${byAction.feed_reject || 0})`,
+      `👢 Пинали: ${byAction.kick || 0}`,
+      `😈 Дразнили: ${byAction.tease || 0}`,
+      `🍈 Показывали сиську: ${byAction.boobs || 0}`,
+      `🎯 Тролль дотроллил кого-то: ${byAction.mischief_targeted || 0}`,
+    ].join('\n');
+    bot.sendMessage(state.chat_id, summary).catch(() => {});
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const info = db.prepare('UPDATE troll_state SET stage = ?, stage_started_at = ? WHERE id = 1').run(stageNum, now);
   if (info.changes === 0) return res.status(404).json({ error: 'no troll yet' });
   res.json({ ok: true, stage: stageNum, stageName: STAGE_NAMES[stageNum] });
 });
