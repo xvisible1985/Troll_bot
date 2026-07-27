@@ -93,6 +93,7 @@ const PUBLIC_COMMANDS = [
 const ADMIN_ONLY_COMMANDS = [
   { command: 'troll_here', description: 'Призвать тролля (одноразово)' },
   { command: 'troll_settings', description: 'Текущие настройки' },
+  { command: 'troll_relationships', description: 'Отношения тролля ко всем' },
   { command: 'troll_set', description: 'Изменить настройку' },
   { command: 'troll_pause', description: 'Выключить шалости' },
   { command: 'troll_resume', description: 'Включить шалости' },
@@ -767,6 +768,25 @@ const MAMA_PHRASES = [
   'Мама, моя любить твоя больше всех на свете!',
 ];
 
+// Extra nasty sneaky-revenge lines for an enemy (attitude -100) specifically
+// — added to the existing targeted_action_mean pool since an enemy's
+// attitude is already far below attitude_escalation_threshold, so mischief
+// aimed at them always escalates to this top tier anyway. No new category
+// or targeting logic needed, just richer content for the case that already
+// fires reliably.
+const TARGETED_ACTION_MEAN_ENEMY_PHRASES = [
+  'исподтишка подложить тухлую рыба под дверь {user}',
+  'заминировать порог {user} острой колючкой',
+  'вылить помои прямо у дверь {user}',
+  'спрятать заранее камни в ботинки {user}',
+  'измазать ручка двери {user} грязью',
+  'тайно связать шнурки на порог {user}',
+  'оставить куча гнилых листьев у дверь {user}',
+  'начертить нехорошие слова мелом на стена {user}',
+  'выпустить лягушки в дом {user}',
+  'стащить и спрятать носки {user}, пока тот спать',
+];
+
 // Tops up an already-deployed troll_phrases table with new seed phrases for
 // a category, checked by exact text match rather than a first-run-only
 // gate — so it's safe to call again on every restart without duplicating.
@@ -798,6 +818,7 @@ seedPhrasesIfMissing('boobs_teen', BOOBS_TEEN_MEMORY_PHRASES);
 seedPhrasesIfMissing('boobs_young', BOOBS_YOUNG_MEMORY_PHRASES);
 seedPhrasesIfMissing('boobs_adult', BOOBS_ADULT_MEMORY_PHRASES);
 seedPhrasesIfMissing('mama', MAMA_PHRASES);
+seedPhrasesIfMissing('targeted_action_mean', TARGETED_ACTION_MEAN_ENEMY_PHRASES);
 
 console.log('Тролль-бот: схема готова.');
 
@@ -1485,8 +1506,22 @@ function pushRecentMessage(entry) {
   if (recentMessages.length > RECENT_MESSAGES_MAX) recentMessages.shift();
 }
 
+// "Enemy" isn't a stored flag — it's just attitude bottomed out at -100,
+// checked live. If it later improves, they stop being treated as one.
+function isEnemy(userId) {
+  const row = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(userId);
+  return !!row && row.attitude <= -100;
+}
+
+function findEnemyAmong(entries) {
+  return entries.find((entry) => isEnemy(entry.userId)) || null;
+}
+
+// Every mention anywhere (mischief, hungry grab, pee) routes through this,
+// so an enemy is always called out as one, everywhere, automatically.
 function getMentionName(entry) {
-  return entry.username ? `@${entry.username}` : entry.firstName;
+  const name = entry.username ? `@${entry.username}` : entry.firstName;
+  return isEnemy(entry.userId) ? `мой враг ${name}` : name;
 }
 
 // Weighted pick from recentMessages: the more a person is disliked, the more
@@ -1537,9 +1572,14 @@ function triggerMischief(chatId) {
   // meaner tier. Purely cosmetic/display for now — nothing reads it back.
   db.prepare('UPDATE troll_state SET char_naughtiness = MIN(100, char_naughtiness + ?) WHERE id = 1').run(tier + 1);
 
+  // Priority: an explicit "Тролль Фас" order first, then an enemy present
+  // in the chat gets picked with certainty (not just favored by weight) —
+  // the whole point of having an enemy — falling back to the normal
+  // weighted-random pick otherwise.
+  const enemyEntry = findEnemyAmong(recentMessages);
   const fasTargetInfo = getFasTargetInfo(state);
-  if (fasTargetInfo || (recentMessages.length > 0 && Math.random() < 0.5)) {
-    const targetInfo = fasTargetInfo || pickMischiefTarget();
+  if (fasTargetInfo || enemyEntry || (recentMessages.length > 0 && Math.random() < 0.5)) {
+    const targetInfo = fasTargetInfo || (enemyEntry ? { entry: enemyEntry, attitude: -100 } : pickMischiefTarget());
     const target = getMentionName(targetInfo.entry);
     const escalationThreshold = getSettingNumber('attitude_escalation_threshold');
     const maxTier = STAGE_MAX_MISCHIEF_TIER[stage] ?? 2;
@@ -1643,8 +1683,10 @@ function resolvePoopGameIfDue(state, now) {
   const candidates = [...poopGameCandidates.values()];
   poopGameCandidates.clear();
   if (candidates.length === 0) return;
-  const loser = candidates[Math.floor(Math.random() * candidates.length)];
-  const name = loser.username ? `@${loser.username}` : loser.firstName;
+  // An enemy among the candidates loses with certainty — no dice needed,
+  // the troll makes sure of it.
+  const loser = findEnemyAmong(candidates) || candidates[Math.floor(Math.random() * candidates.length)];
+  const name = getMentionName(loser);
   bot.sendMessage(state.chat_id, `💩 Ой-ой, ${name} вступить в моя какашка! Твоя теперь вонять целый час...`).catch(() => {});
   logAction(loser.userId, loser.username || loser.firstName, 'poop_victim');
   markSmelly(loser.userId, 3600);
@@ -1656,8 +1698,9 @@ function triggerPee(chatId) {
   const weightLoss = getSettingNumber('weight_loss_per_pee');
   db.prepare('UPDATE troll_state SET weight = MAX(?, weight - ?) WHERE id = 1').run(WEIGHT_FLOOR, weightLoss);
   logAction(0, 'тролль', 'pee');
-  if (recentMessages.length > 0 && Math.random() < 0.5) {
-    const targetInfo = pickMischiefTarget();
+  const enemyEntry = findEnemyAmong(recentMessages);
+  if (enemyEntry || (recentMessages.length > 0 && Math.random() < 0.5)) {
+    const targetInfo = enemyEntry ? { entry: enemyEntry } : pickMischiefTarget();
     const target = getMentionName(targetInfo.entry);
     bot.sendMessage(chatId, `💦 Моя метко пометить территория, заодно окатить ${target}!`).catch(() => {});
     logAction(targetInfo.entry.userId, targetInfo.entry.username || targetInfo.entry.firstName, 'pee_target');
@@ -1777,6 +1820,19 @@ bot.on('message', (msg) => {
     poopGameCandidates.set(msg.from.id, { userId: msg.from.id, username: msg.from.username, firstName: msg.from.first_name });
   }
 
+  // Baby stage only: the troll is scared of an enemy (attitude bottomed out
+  // at -100) — the moment they show up, it tries to hide, and on success
+  // their kick button is blocked for an hour (same kick_blocked_until
+  // column the kick-dodge mechanic already uses). Cooldown so a chatty
+  // enemy doesn't trigger a hide-roll on every single message.
+  if (state.stage === 1 && isEnemy(msg.from.id) && checkCommandCooldown(msg.from.id, 'enemy_fear')) {
+    const hideRoll = rollTrollTryResult(`спрятаться от врага ${actorName(msg.from)}`);
+    bot.sendMessage(msg.chat.id, hideRoll.text).catch(() => {});
+    if (hideRoll.success) {
+      db.prepare('UPDATE troll_relationships SET kick_blocked_until = ? WHERE user_id = ?').run(nowForGame + 3600, msg.from.id);
+    }
+  }
+
   // Passive alternative to /teach: replying directly to anything the troll
   // sent (a dialogue line or an autonomous mischief message) teaches it
   // that phrase — the troll immediately claps back with a tease/comeback
@@ -1835,6 +1891,22 @@ bot.onText(/\/troll_settings\b/, (msg) => {
   if (!isAdminChat(msg)) return;
   const lines = Object.keys(DEFAULT_SETTINGS).map((key) => `${key} = ${getSetting(key)}`);
   bot.sendMessage(msg.chat.id, lines.join('\n'));
+});
+
+bot.onText(/\/troll_relationships\b/, (msg) => {
+  if (!isAdminChat(msg)) return;
+  const state = db.prepare('SELECT mama_user_id FROM troll_state WHERE id = 1').get();
+  const rows = db.prepare('SELECT user_id, username, first_name, attitude FROM troll_relationships ORDER BY attitude DESC').all();
+  if (rows.length === 0) return bot.sendMessage(msg.chat.id, 'Троль пока никого не знает.');
+  const lines = rows.map((r) => {
+    const name = r.username ? `@${r.username}` : r.first_name;
+    const tags = [];
+    if (state && state.mama_user_id === r.user_id) tags.push('👑 мама');
+    if (r.attitude <= -100) tags.push('💀 враг');
+    const tagText = tags.length > 0 ? ` [${tags.join(', ')}]` : '';
+    return `${name}: ${attitudeWord(r.attitude)} (${r.attitude > 0 ? '+' : ''}${r.attitude})${tagText}`;
+  });
+  bot.sendMessage(msg.chat.id, `🤝 Отношения тролля:\n${lines.join('\n')}`);
 });
 
 bot.onText(/\/troll_pause\b/, (msg) => {
@@ -1976,6 +2048,7 @@ const TROLL_HELP_ADMIN = [
   '⚙️ Админские команды (только в этом чате):',
   '/troll_here — призвать тролля (одноразово)',
   '/troll_settings — текущие настройки',
+  '/troll_relationships — отношение тролля ко всем известным людям (👑 мама / 💀 враг отмечены)',
   '/troll_set <ключ> <значение> — изменить настройку',
   '/troll_pause / /troll_resume — выключить/включить шалости',
   '/troll_reset — полный сброс тролля (включая выученные фразы)',
