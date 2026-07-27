@@ -16,17 +16,29 @@ const ADMIN_CHAT_ID = Number(process.env.ADMIN_CHAT_ID);
 // user's messages. Both sides create the table defensively (order-of-deploy
 // independent) and both set busy_timeout, since two Node processes writing
 // the same SQLite file without it risk SQLITE_BUSY under rare contention.
-const tgBotDb = new Database(process.env.TG_BOT_DB_PATH || path.join(__dirname, '..', 'tg-bot', 'mutes.db'));
-tgBotDb.pragma('busy_timeout = 5000');
-tgBotDb.exec(`
-  CREATE TABLE IF NOT EXISTS troll_smell (
-    user_id INTEGER PRIMARY KEY,
-    marked_at INTEGER DEFAULT (strftime('%s','now')),
-    expires_at INTEGER NOT NULL
-  )
-`);
+//
+// Wrapped in try/catch on purpose: this is a nice-to-have cross-bot feature,
+// not core to the troll — if tg-bot's mutes.db isn't at the expected path
+// (wrong directory layout, tg-bot not deployed, permissions, etc.) the whole
+// troll-bot process must NOT crash over it. Set TG_BOT_DB_PATH in .env if
+// the default sibling-directory guess (../tg-bot/mutes.db) is wrong.
+let tgBotDb = null;
+try {
+  tgBotDb = new Database(process.env.TG_BOT_DB_PATH || path.join(__dirname, '..', 'tg-bot', 'mutes.db'));
+  tgBotDb.pragma('busy_timeout = 5000');
+  tgBotDb.exec(`
+    CREATE TABLE IF NOT EXISTS troll_smell (
+      user_id INTEGER PRIMARY KEY,
+      marked_at INTEGER DEFAULT (strftime('%s','now')),
+      expires_at INTEGER NOT NULL
+    )
+  `);
+} catch (err) {
+  console.error('Could not open tg-bot\'s mutes.db — the "smell" feature is disabled. Set TG_BOT_DB_PATH in .env if the path is wrong:', err.message);
+}
 
 function markSmelly(userId, durationSeconds) {
+  if (!tgBotDb) return;
   const expiresAt = Math.floor(Date.now() / 1000) + durationSeconds;
   tgBotDb.prepare(
     'INSERT INTO troll_smell (user_id, marked_at, expires_at) VALUES (?, strftime(\'%s\',\'now\'), ?) ' +
