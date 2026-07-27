@@ -686,6 +686,46 @@ const TEASE_HARSH_OLD_PHRASES = [
   'Я похоронил под этим мостом наглецов посерьёзнее тебя.',
 ];
 
+// Extra "moya remember this little person" flavor lines, added on top of
+// each interaction's existing phrase pool (not replacing it — these just
+// mix in alongside the originals via the normal random pick).
+const PLAY_MEMORY_PHRASES = [
+  'Моя запомнить твоя, людишка! Играть с твоя было весело!',
+  'Твоя теперь в моя память, людишка — хороший игрок!',
+  'Моя не забывать твоя лицо, людишка, твоя хорошо играть!',
+];
+const FEED_MEMORY_PHRASES = [
+  'Моя запомнить твоя, людишка — вкусный корм давать!',
+  'Твоя теперь в моя память как кормилец, людишка!',
+  'Моя не забывать, кто моя кормить, людишка!',
+];
+const KICK_MEMORY_PHRASES = [
+  'Моя запомнить твоя, людишка! Моя не забывать обида!',
+  'Твоя теперь в чёрный список моя память, людишка!',
+  'Моя запоминать твоя лицо — берегись, людишка!',
+];
+const TEASE_MEMORY_PHRASES = [
+  'Моя запомнить твоя, дразнилка-людишка!',
+  'Твоя теперь в моя память, людишка, как надоеда!',
+  'Моя не забывать твоя приставание, людишка!',
+];
+const BOOBS_BABY_MEMORY_PHRASES = [
+  'Моя запомнить эта еда-сиська, людишка!',
+  'Твоя сиська теперь в моя память, людишка!',
+];
+const BOOBS_TEEN_MEMORY_PHRASES = [
+  'Моя запомнить твоя сиська, людишка... неловко, но запомнить!',
+  'Твоя сиська теперь в моя память, людишка.',
+];
+const BOOBS_YOUNG_MEMORY_PHRASES = [
+  'Моя точно запомнить твоя сиська, людишка!',
+  'Твоя сиська теперь навсегда в моя память, людишка!',
+];
+const BOOBS_ADULT_MEMORY_PHRASES = [
+  'Моя запомнить твоя сиська во всех подробностях, людишка!',
+  'Твоя сиська — теперь легенда в моя память, людишка!',
+];
+
 // Tops up an already-deployed troll_phrases table with new seed phrases for
 // a category, checked by exact text match rather than a first-run-only
 // gate — so it's safe to call again on every restart without duplicating.
@@ -708,6 +748,14 @@ seedPhrasesIfMissing('tease_old', TEASE_OLD_PHRASES);
 seedPhrasesIfMissing('tease_harsh_young', TEASE_HARSH_YOUNG_PHRASES);
 seedPhrasesIfMissing('tease_harsh_adult', TEASE_HARSH_ADULT_PHRASES);
 seedPhrasesIfMissing('tease_harsh_old', TEASE_HARSH_OLD_PHRASES);
+seedPhrasesIfMissing('play', PLAY_MEMORY_PHRASES);
+seedPhrasesIfMissing('feed', FEED_MEMORY_PHRASES);
+seedPhrasesIfMissing('kick', KICK_MEMORY_PHRASES);
+seedPhrasesIfMissing('tease', TEASE_MEMORY_PHRASES);
+seedPhrasesIfMissing('boobs_baby', BOOBS_BABY_MEMORY_PHRASES);
+seedPhrasesIfMissing('boobs_teen', BOOBS_TEEN_MEMORY_PHRASES);
+seedPhrasesIfMissing('boobs_young', BOOBS_YOUNG_MEMORY_PHRASES);
+seedPhrasesIfMissing('boobs_adult', BOOBS_ADULT_MEMORY_PHRASES);
 
 console.log('Тролль-бот: схема готова.');
 
