@@ -317,11 +317,20 @@ db.exec(`
     attitude INTEGER NOT NULL DEFAULT 0,
     first_seen_at INTEGER DEFAULT (strftime('%s','now')),
     last_seen_at INTEGER,
-    kick_blocked_until INTEGER
+    kick_blocked_until INTEGER,
+    is_enemy INTEGER NOT NULL DEFAULT 0
   )
 `);
 try {
   db.exec('ALTER TABLE troll_relationships ADD COLUMN kick_blocked_until INTEGER');
+} catch {}
+// Enemy status used to be purely live (attitude <= -100, lifted automatically
+// if attitude recovered) — now it's permanent once earned, like mama. The
+// backfill flags anyone already sitting at rock bottom at the moment this
+// column is first added, so upgrading doesn't lose already-earned enemies.
+try {
+  db.exec('ALTER TABLE troll_relationships ADD COLUMN is_enemy INTEGER NOT NULL DEFAULT 0');
+  db.exec('UPDATE troll_relationships SET is_enemy = 1 WHERE attitude <= -100');
 } catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_stickers (
@@ -976,13 +985,15 @@ function checkMamaPromotion(chatId, userId) {
   bot.sendMessage(chatId, '👑 Моя обрести мама! Твоя теперь моя мама навсегда!').catch(() => {});
 }
 
-// Unlike mama, "enemy" isn't sticky — it's a live check (see isEnemy) — so
-// this only fires the announcement on the actual transition into it
-// (oldAttitude wasn't already -100), not every time a further negative
-// delta lands while already there.
+// Enemy status is permanent once earned, like mama — reaching attitude -100
+// sets is_enemy for good, even if attitude later recovers (see isEnemy).
+// oldAttitude <= -100 short-circuits so this only fires on the actual
+// transition into it, not every further negative delta while already there.
 function checkEnemyDeclaration(chatId, from, oldAttitude) {
   if (oldAttitude <= -100) return;
-  if (!isEnemy(from.id)) return;
+  const row = db.prepare('SELECT attitude, is_enemy FROM troll_relationships WHERE user_id = ?').get(from.id);
+  if (!row || row.attitude > -100 || row.is_enemy) return;
+  db.prepare('UPDATE troll_relationships SET is_enemy = 1 WHERE user_id = ?').run(from.id);
   bot.sendMessage(chatId, `💀 ${actorName(from)}, твоя теперь мой враг! Моя не забывать это никогда! 🖕`).catch(() => {});
 }
 
@@ -1582,11 +1593,11 @@ function pushRecentMessage(entry) {
   if (recentMessages.length > RECENT_MESSAGES_MAX) recentMessages.shift();
 }
 
-// "Enemy" isn't a stored flag — it's just attitude bottomed out at -100,
-// checked live. If it later improves, they stop being treated as one.
+// Enemy status is a stored flag, permanent once earned (see
+// checkEnemyDeclaration) — attitude recovering later does NOT lift it.
 function isEnemy(userId) {
-  const row = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(userId);
-  return !!row && row.attitude <= -100;
+  const row = db.prepare('SELECT is_enemy FROM troll_relationships WHERE user_id = ?').get(userId);
+  return !!row && !!row.is_enemy;
 }
 
 function findEnemyAmong(entries) {
@@ -1953,8 +1964,8 @@ bot.on('message', (msg) => {
     poopGameCandidates.set(msg.from.id, { userId: msg.from.id, username: msg.from.username, firstName: msg.from.first_name });
   }
 
-  // Baby stage only: the troll is scared of an enemy (attitude bottomed out
-  // at -100) — the moment they show up, it tries to hide, and on success
+  // Baby stage only: the troll is scared of a permanent enemy (see isEnemy)
+  // — the moment they show up, it tries to hide, and on success
   // their kick button is blocked for an hour (same kick_blocked_until
   // column the kick-dodge mechanic already uses). Cooldown so a chatty
   // enemy doesn't trigger a hide-roll on every single message.
@@ -2035,31 +2046,32 @@ bot.onText(/\/troll_settings\b/, (msg) => {
 bot.onText(/\/troll_relationships\b/, (msg) => {
   if (!isAdminChat(msg)) return;
   const state = db.prepare('SELECT mama_user_id FROM troll_state WHERE id = 1').get();
-  const rows = db.prepare('SELECT user_id, username, first_name, attitude FROM troll_relationships ORDER BY attitude DESC').all();
+  const rows = db.prepare('SELECT user_id, username, first_name, attitude, is_enemy FROM troll_relationships ORDER BY attitude DESC').all();
   if (rows.length === 0) return bot.sendMessage(msg.chat.id, 'Троль пока никого не знает.');
   const lines = rows.map((r) => {
     const name = r.username ? `@${r.username}` : r.first_name;
     const tags = [];
     if (state && state.mama_user_id === r.user_id) tags.push('👑 мама');
-    if (r.attitude <= -100) tags.push('💀 враг');
+    if (r.is_enemy) tags.push('💀 враг');
     const tagText = tags.length > 0 ? ` [${tags.join(', ')}]` : '';
     return `${name}: ${attitudeWord(r.attitude)} (${r.attitude > 0 ? '+' : ''}${r.attitude})${tagText}`;
   });
   bot.sendMessage(msg.chat.id, `🤝 Отношения тролля:\n${lines.join('\n')}`);
 });
 
-// One-off catch-up for anyone who was already sitting at -100 before this
-// feature existed — the live announcement in checkEnemyDeclaration only
-// fires on an actual transition, so a pre-existing rock-bottom relationship
-// would otherwise never get declared.
+// Catch-up for anyone sitting at -100 who somehow isn't flagged yet (e.g. a
+// manual DB edit to attitude bypassing adjustAttitude) — normally the
+// migration backfill plus checkEnemyDeclaration's live check already cover
+// everyone, so this is a rarely-needed safety net, not the primary path.
 bot.onText(/\/troll_declare_enemies\b/, (msg) => {
   if (!isAdminChat(msg)) return;
   const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет.');
-  const enemies = db.prepare('SELECT user_id, username, first_name FROM troll_relationships WHERE attitude <= -100').all();
-  if (enemies.length === 0) return bot.sendMessage(msg.chat.id, 'Врагов пока нет.');
+  const enemies = db.prepare("SELECT user_id, username, first_name FROM troll_relationships WHERE attitude <= -100 AND is_enemy = 0").all();
+  if (enemies.length === 0) return bot.sendMessage(msg.chat.id, 'Новых врагов нет — все уже отмечены.');
   for (const enemy of enemies) {
     const name = enemy.username ? `@${enemy.username}` : enemy.first_name;
+    db.prepare('UPDATE troll_relationships SET is_enemy = 1 WHERE user_id = ?').run(enemy.user_id);
     bot.sendMessage(state.chat_id, `💀 ${name}, твоя мой враг! Моя не забывать это никогда! 🖕`).catch(() => {});
   }
   bot.sendMessage(msg.chat.id, `Объявлено врагов: ${enemies.length}`);
