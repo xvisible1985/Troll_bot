@@ -823,6 +823,115 @@ const TARGETED_ACTION_MEAN_ENEMY_PHRASES = [
   'стащить и спрятать носки {user}, пока тот спать',
 ];
 
+// Gender-specific comebacks (see resolveTeaseCategory) — a flat 20-line
+// pool per gender that takes priority over the normal attitude-tier tease
+// system whenever the target's gender is known (see detectAndStoreGender),
+// falling back to the harsh/neutral/adoring tiers otherwise.
+const TEASE_MALE_PHRASES = [
+  'Твоя такой глупый! Моя не бояться твоя!',
+  'Ха! Твоя слабый совсем, а ещё дразнить моя!',
+  'Твоя мужик, а вести себя как малыш!',
+  'Твоя такой шумный, как трактор без глушитель!',
+  'Ну и хвастун твоя! Моя видеть твоя насквозь!',
+  'Твоя думать, твоя крутой? Моя смеяться!',
+  'Твоя такой упрямый осёл!',
+  'Фу, твоя такой вонючий, моя аж отвернуться!',
+  'Твоя борода растрёпанный, как моя мост!',
+  'Твоя грозный только на словах!',
+  'Моя видеть, твоя дрожать от страх, а ещё выпендриваться!',
+  'Твоя такой ленивый лежебока!',
+  'Твоя орать горазд, а сам трусишка!',
+  'Твоя пузатый и надутый, как жаба!',
+  'Моя знать, твоя слабак под этой важностью!',
+  'Твоя такой невоспитанный грубиян!',
+  'Ой, твоя такой напыщенный, а внутри пустой!',
+  'Твоя пыжиться, а моя всё равно не бояться твоя!',
+  'Твоя такой неуклюжий, споткнёшься о собственный нога!',
+  'Твоя думать твоя сильный? Моя видеть только хвастовство!',
+];
+const TEASE_FEMALE_PHRASES = [
+  'Твоя такая глупая! Моя не бояться твоя!',
+  'Ха! Твоя слабая совсем, а ещё дразнить моя!',
+  'Твоя такая шумная, как трещотка!',
+  'Твоя такая надутая, как шарик!',
+  'Ну и хвастунья твоя! Моя видеть твоя насквозь!',
+  'Твоя думать, твоя крутая? Моя смеяться!',
+  'Твоя такая упрямая ослица!',
+  'Фу, твоя такая вонючая, моя аж отвернуться!',
+  'Твоя причёска растрёпанная, как моя мост!',
+  'Твоя грозная только на словах!',
+  'Моя видеть, твоя дрожать от страх, а ещё выпендриваться!',
+  'Твоя такая ленивая лежебока!',
+  'Твоя орать горазда, а сама трусишка!',
+  'Твоя надутая и капризная, как жаба!',
+  'Моя знать, твоя слабачка под этой важностью!',
+  'Твоя такая невоспитанная грубиянка!',
+  'Ой, твоя такая напыщенная, а внутри пустая!',
+  'Твоя пыжиться, а моя всё равно не бояться твоя!',
+  'Твоя такая неуклюжая, споткнёшься о собственный нога!',
+  'Твоя думать твоя сильная? Моя видеть только хвастовство!',
+];
+
+// Gender-specific mischief actions (see resolveTargetedActionCategory) —
+// same priority-pool idea as tease above, fed through rollTrollTry so each
+// still gets the usual trial-roll treatment, just with gender-flavored
+// content instead of the plain mild/medium/mean tiers.
+const TARGETED_ACTION_MALE_PHRASES = [
+  'спрятать любимый мяч {user} под мост',
+  'подрисовать усы на фото {user}',
+  'связать шнурки {user} между собой',
+  'спрятать пульт от телевизора у {user}',
+  'подложить жвачку под стул {user}',
+  'украсть кепку у {user}',
+  'спрятать бритва {user} под мост',
+  'подкрутить будильник {user} на час раньше',
+  'намазать руль велосипеда {user} мёдом',
+  'спрятать носки {user} по одному',
+  'подложить лягушка в рюкзак {user}',
+  'стащить последняя котлета у {user}',
+  'перепутать пульт от игровая приставка {user}',
+  'спрятать зарядка от телефон {user}',
+  'нарисовать рожица на кроссовке {user}',
+  'подвязать шнурки на кроссовках {user}',
+  'спрятать любимая кружка {user} под мост',
+  'намочить подушка {user} водой из-под моста',
+  'стащить чипсы у {user} и спрятать под мост',
+  'перепутать носки {user} местами',
+];
+const TARGETED_ACTION_FEMALE_PHRASES = [
+  'спрятать любимая помада {user} под мост',
+  'перепутать флаконы шампуня у {user}',
+  'завязать бантик на сумке {user}, пока та не видеть',
+  'спрятать заколки {user} под мост',
+  'подложить блёстки в косметичка {user}',
+  'стащить последняя конфета у {user}',
+  'спрятать любимые серёжки {user}',
+  'намазать зеркало {user} водой из-под моста',
+  'перепутать крем и зубную паста у {user}',
+  'спрятать зарядка от телефон {user}',
+  'подрисовать смайлик на зеркале {user}',
+  'стащить резинка для волос у {user}',
+  'спрятать любимый шарф {user} под мост',
+  'намочить полотенце {user} водой из-под моста',
+  'перепутать местами тапочки {user}',
+  'спрятать зонтик {user} перед дождь',
+  'подложить блёстки в сумка {user}',
+  'стащить последнее печенье у {user}',
+  'спрятать любимая кружка {user} под мост',
+  'завязать шнурки {user} узлом',
+];
+
+// /boobs turn-away for a known male caller (see performBoobs) — unknown
+// gender still goes through normally, only an explicit male match rejects.
+const BOOBS_MALE_REJECT_PHRASES = [
+  'Твоя же не девушка! У твоя нет что показать!',
+  'Ха, твоя мужик! Моя ждать сиська, а не эта!',
+  'Твоя перепутал что-то, у твоя там не то!',
+  'Моя не обманывать — иди зови девушка, если хочешь моя порадовать!',
+  'Твоя думать моя не заметить? У твоя нет сиська!',
+  'Тю, твоя мужик — моя это не интересно!',
+];
+
 // Tops up an already-deployed troll_phrases table with new seed phrases for
 // a category, checked by exact text match rather than a first-run-only
 // gate — so it's safe to call again on every restart without duplicating.
@@ -855,6 +964,11 @@ seedPhrasesIfMissing('boobs_young', BOOBS_YOUNG_MEMORY_PHRASES);
 seedPhrasesIfMissing('boobs_adult', BOOBS_ADULT_MEMORY_PHRASES);
 seedPhrasesIfMissing('mama', MAMA_PHRASES);
 seedPhrasesIfMissing('targeted_action_mean', TARGETED_ACTION_MEAN_ENEMY_PHRASES);
+seedPhrasesIfMissing('tease_male', TEASE_MALE_PHRASES);
+seedPhrasesIfMissing('tease_female', TEASE_FEMALE_PHRASES);
+seedPhrasesIfMissing('targeted_action_male', TARGETED_ACTION_MALE_PHRASES);
+seedPhrasesIfMissing('targeted_action_female', TARGETED_ACTION_FEMALE_PHRASES);
+seedPhrasesIfMissing('boobs_male_reject', BOOBS_MALE_REJECT_PHRASES);
 
 console.log('Тролль-бот: схема готова.');
 
@@ -1076,6 +1190,25 @@ function pickTeaseCategory(userId) {
   if (attitude >= 0) return 'tease_neutral';
   if (attitude <= getSettingNumber('attitude_escalation_threshold')) return 'tease_harsh';
   return 'tease';
+}
+
+// Gender pool (see TEASE_MALE_PHRASES/TEASE_FEMALE_PHRASES) takes priority
+// over the attitude-tier tease system above whenever the target's gender
+// is known (see detectAndStoreGender) — falls back to the normal
+// harsh/neutral/adoring tiers otherwise. Only for actual phrase-selection
+// call sites — the plain attitude check gating "Тролль Фас" keeps calling
+// pickTeaseCategory directly, unaffected by gender.
+function resolveTeaseCategory(userId) {
+  const row = db.prepare('SELECT gender FROM troll_relationships WHERE user_id = ?').get(userId);
+  return row && row.gender ? `tease_${row.gender}` : pickTeaseCategory(userId);
+}
+
+// Same idea for targeted mischief actions (see TARGETED_ACTION_MALE_PHRASES/
+// TARGETED_ACTION_FEMALE_PHRASES) — falls back to whatever escalation tier
+// the caller already computed (mild/medium/mean) when gender is unknown.
+function resolveTargetedActionCategory(userId, tierCategory) {
+  const row = db.prepare('SELECT gender FROM troll_relationships WHERE user_id = ?').get(userId);
+  return row && row.gender ? `targeted_action_${row.gender}` : tierCategory;
 }
 
 // --- Learned phrases ("сказать") ---
@@ -1383,7 +1516,7 @@ async function performKick(chatId, from) {
     const oldAttitude1 = adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
     checkEnemyDeclaration(chatId, from, oldAttitude1);
     logAction(from.id, from.username || from.first_name, 'snapped_at');
-    await sendCategoryReplyForStage(chatId, pickTeaseCategory(from.id), state.stage, 'Твоя не попасть в моя!', actorName(from), from.id);
+    await sendCategoryReplyForStage(chatId, resolveTeaseCategory(from.id), state.stage, 'Твоя не попасть в моя!', actorName(from), from.id);
     db.prepare('UPDATE troll_relationships SET kick_blocked_until = ? WHERE user_id = ?').run(now + 3600, from.id);
     return;
   }
@@ -1479,7 +1612,7 @@ function performTease(chatId, from) {
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10), char_anger = MIN(100, char_anger + 8) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'tease');
   noticeUser(from.id, from.username, from.first_name);
-  sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, pickTeaseCategory(from.id)), state.stage, 'Твоя дразнить моя?! Моя злиться!', actorName(from), from.id);
+  sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, resolveTeaseCategory(from.id)), state.stage, 'Твоя дразнить моя?! Моя злиться!', actorName(from), from.id);
 }
 
 // малыш sees it as food (the joke the whole feature started from); the
@@ -1491,10 +1624,18 @@ function performBoobs(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
   if (!checkCommandCooldown(from.id, 'boobs')) return;
+  noticeUser(from.id, from.username, from.first_name);
+  // Only a KNOWN male gets turned away — unknown gender (not yet detected,
+  // see detectAndStoreGender) still goes through normally, so new users
+  // aren't punished before the troll has had a chance to guess.
+  const rel = db.prepare('SELECT gender FROM troll_relationships WHERE user_id = ?').get(from.id);
+  if (rel && rel.gender === 'male') {
+    sendCategoryReply(chatId, 'boobs_male_reject', 'Твоя же не девушка! У твоя нет что показать!', actorName(from), from.id);
+    return;
+  }
   const category = BOOBS_CATEGORY_BY_STAGE[state.stage] || 'boobs_baby';
   db.prepare('UPDATE troll_state SET char_lust = MIN(100, char_lust + 8) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'boobs');
-  noticeUser(from.id, from.username, from.first_name);
   sendCategoryReply(chatId, mamaCategoryOverride(state, from.id, category), 'Моя видеть еда!', actorName(from), from.id);
 }
 
@@ -1729,7 +1870,8 @@ function triggerMischief(chatId) {
         bot.sendMessage(chatId, `*${template.replace(/\{user\}/g, target)}*`).catch(() => {});
       }
     } else {
-      const template = pickPhraseForStage(TARGETED_ACTION_TIER_CATEGORIES[effectiveTier], stage, 'подшутить над {user}');
+      const actionCategory = resolveTargetedActionCategory(targetInfo.entry.userId, TARGETED_ACTION_TIER_CATEGORIES[effectiveTier]);
+      const template = pickPhraseForStage(actionCategory, stage, 'подшутить над {user}');
       const action = template.replace(/\{user\}/g, target);
       bot.sendMessage(chatId, rollTrollTry(action)).catch(() => {});
     }
@@ -2034,7 +2176,7 @@ bot.on('message', (msg) => {
     learnPhrase(msg.text, msg.from);
     logAction(msg.from.id, msg.from.username || msg.from.first_name, 'snapped_at');
     const comeback = appendRelationshipEmoji(
-      pickPhraseForStage(pickTeaseCategory(msg.from.id), state.stage, 'Твоя дразнить моя?! Моя не любить это!'),
+      pickPhraseForStage(resolveTeaseCategory(msg.from.id), state.stage, 'Твоя дразнить моя?! Моя не любить это!'),
       msg.from.id
     );
     bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
@@ -2056,7 +2198,7 @@ bot.on('message', (msg) => {
   if (addressedByName) {
     logAction(msg.from.id, msg.from.username || msg.from.first_name, 'snapped_at');
     const comeback = appendRelationshipEmoji(
-      pickPhraseForStage(pickTeaseCategory(msg.from.id), state.stage, 'Твоя звать моя? Моя тут!'),
+      pickPhraseForStage(resolveTeaseCategory(msg.from.id), state.stage, 'Твоя звать моя? Моя тут!'),
       msg.from.id
     );
     bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
