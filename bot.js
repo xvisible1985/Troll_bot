@@ -94,6 +94,7 @@ const ADMIN_ONLY_COMMANDS = [
   { command: 'troll_here', description: 'Призвать тролля (одноразово)' },
   { command: 'troll_settings', description: 'Текущие настройки' },
   { command: 'troll_relationships', description: 'Отношения тролля ко всем' },
+  { command: 'troll_declare_enemies', description: 'Объявить врагов задним числом' },
   { command: 'troll_set', description: 'Изменить настройку' },
   { command: 'troll_pause', description: 'Выключить шалости' },
   { command: 'troll_resume', description: 'Включить шалости' },
@@ -1951,6 +1952,23 @@ bot.onText(/\/troll_relationships\b/, (msg) => {
   bot.sendMessage(msg.chat.id, `🤝 Отношения тролля:\n${lines.join('\n')}`);
 });
 
+// One-off catch-up for anyone who was already sitting at -100 before this
+// feature existed — the live announcement in checkEnemyDeclaration only
+// fires on an actual transition, so a pre-existing rock-bottom relationship
+// would otherwise never get declared.
+bot.onText(/\/troll_declare_enemies\b/, (msg) => {
+  if (!isAdminChat(msg)) return;
+  const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
+  if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет.');
+  const enemies = db.prepare('SELECT user_id, username, first_name FROM troll_relationships WHERE attitude <= -100').all();
+  if (enemies.length === 0) return bot.sendMessage(msg.chat.id, 'Врагов пока нет.');
+  for (const enemy of enemies) {
+    const name = enemy.username ? `@${enemy.username}` : enemy.first_name;
+    bot.sendMessage(state.chat_id, `💀 ${name}, твоя мой враг! Моя не забывать это никогда! 🖕`).catch(() => {});
+  }
+  bot.sendMessage(msg.chat.id, `Объявлено врагов: ${enemies.length}`);
+});
+
 bot.onText(/\/troll_pause\b/, (msg) => {
   if (!isAdminChat(msg)) return;
   setSetting('paused', '1');
@@ -2091,6 +2109,7 @@ const TROLL_HELP_ADMIN = [
   '/troll_here — призвать тролля (одноразово)',
   '/troll_settings — текущие настройки',
   '/troll_relationships — отношение тролля ко всем известным людям (👑 мама / 💀 враг отмечены)',
+  '/troll_declare_enemies — объявить задним числом всех, кто уже на -100, врагами тролля (для тех, кто набрал это до появления фичи)',
   '/troll_set <ключ> <значение> — изменить настройку',
   '/troll_pause / /troll_resume — выключить/включить шалости',
   '/troll_reset — полный сброс тролля (включая выученные фразы)',
