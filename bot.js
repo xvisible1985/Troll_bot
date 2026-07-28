@@ -107,6 +107,8 @@ const ADMIN_ONLY_COMMANDS = [
   { command: 'troll_phrase_edit', description: 'Изменить фразу' },
   { command: 'troll_phrase_del', description: 'Удалить фразу' },
   { command: 'troll_panel', description: 'Открыть веб-панель управления' },
+  { command: 'troll_gifs', description: 'Список гифок в пуле "фак"' },
+  { command: 'troll_gif_del', description: 'Удалить гифку из пула' },
 ];
 bot.setMyCommands(PUBLIC_COMMANDS).catch((err) => {
   console.error('setMyCommands (default scope) failed:', err.message);
@@ -348,6 +350,21 @@ db.exec(`
     added_at INTEGER DEFAULT (strftime('%s','now'))
   )
 `);
+// Curated GIF pool (see maybeSendFuckReaction) — deliberately its own tiny
+// table rather than reusing troll_stickers: GIFs are sent via
+// bot.sendAnimation, not bot.sendSticker, so mixing the two file_id kinds
+// in one table would need a "kind" column just to dispatch correctly.
+// Populated by forwarding/sending an animation directly in the admin chat
+// (see the message handler below) — there's no Telegram "GIF set" to bulk
+// import the way sticker packs work for troll_stickers.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS troll_gifs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL DEFAULT 'fuck',
+    added_at INTEGER DEFAULT (strftime('%s','now'))
+  )
+`);
 // Free-form lines taught by any user via /teach or by replying directly to
 // the troll — later replayed verbatim at random to other users' messages.
 // Deliberately uncurated (no category/moderation): the joke is the troll
@@ -399,6 +416,9 @@ const DEFAULT_SETTINGS = {
   regen_sleep_health_per_tick: '5',
   regen_sleep_weight_loss_per_tick: '1',
   regen_sleep_cooldown_hours: '2',
+  frequent_arguer_kick_threshold: '5',
+  frequent_arguer_window_hours: '24',
+  frequent_arguer_fuck_chance: '40',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -1211,6 +1231,36 @@ function resolveTargetedActionCategory(userId, tierCategory) {
   return row && row.gender ? `targeted_action_${row.gender}` : tierCategory;
 }
 
+// A "frequent arguer" is purely about recent conflict frequency (kicks
+// within a rolling window) — deliberately independent of the attitude-based
+// enemy system, since someone can kick a lot in a short burst without ever
+// dropping attitude all the way to -100.
+function isFrequentArguer(userId) {
+  const windowSeconds = getSettingNumber('frequent_arguer_window_hours') * 3600;
+  const since = Math.floor(Date.now() / 1000) - windowSeconds;
+  const row = db.prepare(
+    "SELECT COUNT(*) AS n FROM troll_actions WHERE user_id = ? AND action = 'kick' AND created_at >= ?"
+  ).get(userId, since);
+  return row.n >= getSettingNumber('frequent_arguer_kick_threshold');
+}
+
+// Rolled at every tease-comeback call site, before the normal reply — a
+// frequent arguer sometimes gets just a bare 🖕 or a GIF from the curated
+// troll_gifs pool (see the admin-chat animation listener below) instead of
+// the usual tease phrase. Returns true when it fired, so callers know to
+// skip their normal reply.
+function maybeSendFuckReaction(chatId, userId) {
+  if (!isFrequentArguer(userId)) return false;
+  if (Math.random() * 100 >= getSettingNumber('frequent_arguer_fuck_chance')) return false;
+  const gifs = db.prepare("SELECT file_id FROM troll_gifs WHERE category = 'fuck'").all();
+  if (gifs.length > 0 && Math.random() < 0.5) {
+    bot.sendAnimation(chatId, pick(gifs).file_id).catch(() => {});
+  } else {
+    bot.sendMessage(chatId, '🖕').catch(() => {});
+  }
+  return true;
+}
+
 // --- Learned phrases ("сказать") ---
 // Deliberately unmoderated free text, taught by any user via /teach or by
 // replying directly to something the troll said. Replayed verbatim later at
@@ -1516,7 +1566,9 @@ async function performKick(chatId, from) {
     const oldAttitude1 = adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
     checkEnemyDeclaration(chatId, from, oldAttitude1);
     logAction(from.id, from.username || from.first_name, 'snapped_at');
-    await sendCategoryReplyForStage(chatId, resolveTeaseCategory(from.id), state.stage, 'Твоя не попасть в моя!', actorName(from), from.id);
+    if (!maybeSendFuckReaction(chatId, from.id)) {
+      await sendCategoryReplyForStage(chatId, resolveTeaseCategory(from.id), state.stage, 'Твоя не попасть в моя!', actorName(from), from.id);
+    }
     db.prepare('UPDATE troll_relationships SET kick_blocked_until = ? WHERE user_id = ?').run(now + 3600, from.id);
     return;
   }
@@ -1612,7 +1664,9 @@ function performTease(chatId, from) {
   db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10), char_anger = MIN(100, char_anger + 8) WHERE id = 1').run();
   logAction(from.id, from.username || from.first_name, 'tease');
   noticeUser(from.id, from.username, from.first_name);
-  sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, resolveTeaseCategory(from.id)), state.stage, 'Твоя дразнить моя?! Моя злиться!', actorName(from), from.id);
+  if (!maybeSendFuckReaction(chatId, from.id)) {
+    sendCategoryReplyForStage(chatId, mamaCategoryOverride(state, from.id, resolveTeaseCategory(from.id)), state.stage, 'Твоя дразнить моя?! Моя злиться!', actorName(from), from.id);
+  }
 }
 
 // малыш sees it as food (the joke the whole feature started from); the
@@ -2175,11 +2229,13 @@ bot.on('message', (msg) => {
   if (repliedToTroll && msg.text && checkCommandCooldown(msg.from.id, 'teach')) {
     learnPhrase(msg.text, msg.from);
     logAction(msg.from.id, msg.from.username || msg.from.first_name, 'snapped_at');
-    const comeback = appendRelationshipEmoji(
-      pickPhraseForStage(resolveTeaseCategory(msg.from.id), state.stage, 'Твоя дразнить моя?! Моя не любить это!'),
-      msg.from.id
-    );
-    bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
+    if (!maybeSendFuckReaction(msg.chat.id, msg.from.id)) {
+      const comeback = appendRelationshipEmoji(
+        pickPhraseForStage(resolveTeaseCategory(msg.from.id), state.stage, 'Твоя дразнить моя?! Моя не любить это!'),
+        msg.from.id
+      );
+      bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
+    }
   }
 
   // Directly named ("тролль") in an ordinary message — same comeback pool,
@@ -2197,11 +2253,13 @@ bot.on('message', (msg) => {
 
   if (addressedByName) {
     logAction(msg.from.id, msg.from.username || msg.from.first_name, 'snapped_at');
-    const comeback = appendRelationshipEmoji(
-      pickPhraseForStage(resolveTeaseCategory(msg.from.id), state.stage, 'Твоя звать моя? Моя тут!'),
-      msg.from.id
-    );
-    bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
+    if (!maybeSendFuckReaction(msg.chat.id, msg.from.id)) {
+      const comeback = appendRelationshipEmoji(
+        pickPhraseForStage(resolveTeaseCategory(msg.from.id), state.stage, 'Твоя звать моя? Моя тут!'),
+        msg.from.id
+      );
+      bot.sendMessage(msg.chat.id, comeback, { reply_to_message_id: msg.message_id }).catch(() => {});
+    }
     return;
   }
 
@@ -2212,6 +2270,32 @@ bot.on('message', (msg) => {
     const learned = db.prepare('SELECT text FROM troll_learned_phrases ORDER BY RANDOM() LIMIT 1').get();
     if (learned) bot.sendMessage(msg.chat.id, trollify(learned.text), { reply_to_message_id: msg.message_id }).catch(() => {});
   }
+});
+
+// Curated "fuck gif" pool (see maybeSendFuckReaction): there's no Telegram
+// "GIF set" to bulk-import the way sticker packs work for troll_stickers,
+// so an admin just forwards/sends an animation directly in the admin chat
+// and it gets captured here — no caption or command needed.
+bot.on('message', (msg) => {
+  if (!isAdminChat(msg) || !msg.animation) return;
+  const info = db.prepare('INSERT OR IGNORE INTO troll_gifs (file_id, category) VALUES (?, ?)').run(msg.animation.file_id, 'fuck');
+  if (info.changes > 0) {
+    bot.sendMessage(msg.chat.id, '🖕 Гифка добавлена в пул.').catch(() => {});
+  } else {
+    bot.sendMessage(msg.chat.id, 'Эта гифка уже есть в пуле.').catch(() => {});
+  }
+});
+
+bot.onText(/\/troll_gifs\b/, (msg) => {
+  if (!isAdminChat(msg)) return;
+  const rows = db.prepare("SELECT id FROM troll_gifs WHERE category = 'fuck'").all();
+  bot.sendMessage(msg.chat.id, `Гифок в пуле: ${rows.length}${rows.length > 0 ? ` (ID: ${rows.map((r) => r.id).join(', ')})` : ''}`);
+});
+
+bot.onText(/\/troll_gif_del (\d+)/, (msg, match) => {
+  if (!isAdminChat(msg)) return;
+  const info = db.prepare('DELETE FROM troll_gifs WHERE id = ?').run(Number(match[1]));
+  bot.sendMessage(msg.chat.id, info.changes > 0 ? 'Гифка удалена.' : 'Не найдено.');
 });
 
 // --- Admin commands (admin chat only) ---
@@ -2420,6 +2504,8 @@ const TROLL_HELP_ADMIN = [
   '/troll_phrase_edit <ID> <текст> — изменить фразу',
   '/troll_phrase_del <ID> — удалить фразу',
   '/troll_panel — открыть веб-панель управления (кнопкой)',
+  '/troll_gifs — список гифок в пуле "фак" (для частых спорщиков); пул пополняется, просто скинув гифку в этот чат',
+  '/troll_gif_del <ID> — удалить гифку из пула',
 ].join('\n');
 
 bot.onText(/\/troll_help\b/, (msg) => {

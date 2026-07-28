@@ -65,6 +65,9 @@ const SETTING_LABELS = {
   regen_sleep_health_per_tick: 'Регенерационный сон: здоровье за тик',
   regen_sleep_weight_loss_per_tick: 'Регенерационный сон: потеря веса за тик',
   regen_sleep_cooldown_hours: 'Регенерационный сон: кулдаун, ч',
+  frequent_arguer_kick_threshold: 'Частый спорщик: кол-во пинков для статуса',
+  frequent_arguer_window_hours: 'Частый спорщик: окно подсчёта, ч',
+  frequent_arguer_fuck_chance: 'Частый спорщик: шанс 🖕 вместо огрызания, %',
 };
 const SETTING_RANGES = {
   naughtiness: [1, 10, 1],
@@ -101,6 +104,9 @@ const SETTING_RANGES = {
   regen_sleep_health_per_tick: [1, 20, 1],
   regen_sleep_weight_loss_per_tick: [0, 5, 1],
   regen_sleep_cooldown_hours: [1, 12, 1],
+  frequent_arguer_kick_threshold: [1, 20, 1],
+  frequent_arguer_window_hours: [1, 72, 1],
+  frequent_arguer_fuck_chance: [0, 100, 5],
 };
 
 async function loadStatus() {

@@ -17,6 +17,7 @@ const DEFAULT_SETTINGS_KEYS = [
   'poop_mood_gain', 'command_cooldown_seconds', 'attitude_fas_delta',
   'regen_sleep_health_threshold', 'regen_sleep_duration_minutes', 'regen_sleep_tick_minutes',
   'regen_sleep_health_per_tick', 'regen_sleep_weight_loss_per_tick', 'regen_sleep_cooldown_hours',
+  'frequent_arguer_kick_threshold', 'frequent_arguer_window_hours', 'frequent_arguer_fuck_chance',
 ];
 
 function getSetting(key) {
