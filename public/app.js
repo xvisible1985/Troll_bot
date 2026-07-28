@@ -714,6 +714,54 @@ async function loadStickers() {
   });
 }
 
+// Read/delete only — the pool is filled by sending an animation directly in
+// the bot's admin chat (see the message handler in bot.js), there's no
+// import route to trigger from here the way stickers have.
+async function loadGifs() {
+  const gifs = await apiFetch('/gifs');
+  const panel = document.getElementById('panel-gifs');
+  if (gifs.length === 0) {
+    panel.innerHTML = '<div class="card">Пул пуст — отправь гифку прямо в админ-чат бота, и она появится здесь.</div>';
+    return;
+  }
+  const items = gifs.map((g) => `
+    <div class="sticker-item" data-id="${g.id}">
+      <video class="gif-preview" data-gif-id="${g.id}" muted loop autoplay playsinline></video>
+      <div class="sticker-controls">
+        <div class="sticker-own-text-row">
+          <span style="font-size:11.5px; color:var(--text-muted);">добавлена: ${new Date(g.added_at * 1000).toLocaleDateString('ru-RU')}</span>
+          <button class="icon-btn gif-del">✕ удалить</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+  panel.innerHTML = `<div class="card">${items}</div>`;
+
+  panel.querySelectorAll('.sticker-item').forEach((item) => {
+    const id = item.dataset.id;
+    item.querySelector('.gif-del').addEventListener('click', async () => {
+      await apiFetch('/gifs/' + id, { method: 'DELETE' });
+      loadGifs();
+    });
+  });
+
+  // Same X-Telegram-Init-Data-via-fetch-then-blob trick as sticker previews
+  // — a plain <video src> can't carry the auth header the API route needs.
+  panel.querySelectorAll('.gif-preview').forEach(async (video) => {
+    const id = video.dataset.gifId;
+    try {
+      const res = await fetch(`/troll-admin/api/gifs/${id}/video`, {
+        headers: { 'X-Telegram-Init-Data': initData },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      video.src = URL.createObjectURL(blob);
+    } catch (err) {
+      console.error(`gif preview failed for id=${id}:`, err);
+    }
+  });
+}
+
 async function init() {
   // The very first call also acts as the auth probe (requireAdmin gates
   // every /api/* route) — if it fails, treat it as "you don't have access"
@@ -735,6 +783,7 @@ async function init() {
     { name: 'relationships', panelId: 'panel-relationships', fn: loadRelationships },
     { name: 'say', panelId: 'panel-say', fn: async () => renderSay() },
     { name: 'stickers', panelId: 'panel-stickers', fn: loadStickers },
+    { name: 'gifs', panelId: 'panel-gifs', fn: loadGifs },
   ];
   for (const task of tasks) {
     try {

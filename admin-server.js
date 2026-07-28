@@ -252,6 +252,34 @@ api.get('/stickers/:id/image', async (req, res) => {
   }
 });
 
+// Curated "fuck gif" pool (see maybeSendFuckReaction in bot.js) — filled by
+// sending an animation directly in the bot's admin chat (no bulk-import
+// route exists, unlike stickers, since Telegram has no "GIF set" concept).
+// This panel view is read/delete only.
+api.get('/gifs', (req, res) => {
+  const rows = db.prepare("SELECT id, category, added_at FROM troll_gifs WHERE category = 'fuck' ORDER BY added_at DESC").all();
+  res.json(rows);
+});
+
+api.delete('/gifs/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM troll_gifs WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true });
+});
+
+api.get('/gifs/:id/video', async (req, res) => {
+  const row = db.prepare('SELECT file_id FROM troll_gifs WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).end();
+  try {
+    const { contentType, stream } = await fetchTelegramFile(row.file_id);
+    res.set('Content-Type', contentType);
+    stream.pipe(res);
+  } catch (err) {
+    console.error(`gif proxy failed for id=${req.params.id}:`, err.message);
+    res.status(502).end();
+  }
+});
+
 // Phrases the troll picked up via /teach or by being replied to, plus
 // whatever the admin adds by hand here — same pool bot.js's message
 // handler draws from at random when replying to ordinary chat messages.
