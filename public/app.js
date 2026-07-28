@@ -714,14 +714,25 @@ async function loadStickers() {
   });
 }
 
-// Read/delete only — the pool is filled by sending an animation directly in
-// the bot's admin chat (see the message handler in bot.js), there's no
-// import route to trigger from here the way stickers have.
+// Uploads go out through the bot itself (to the admin chat, the same place
+// the pool is normally filled from) — that's the only way to get Telegram's
+// file_id back for a raw file, there's no "store without sending" endpoint.
 async function loadGifs() {
   const gifs = await apiFetch('/gifs');
   const panel = document.getElementById('panel-gifs');
+  const uploadCard = `
+    <div class="card">
+      <p class="eyebrow">Добавить гифку</p>
+      <div class="add-phrase-row">
+        <input type="file" id="gif-upload-input" accept="video/mp4,image/gif,video/webm">
+        <button class="btn" id="gif-upload-btn">Загрузить</button>
+      </div>
+      <div id="gif-upload-status" style="margin-top:8px; font-size:12.5px; color:var(--text-muted);"></div>
+    </div>
+  `;
   if (gifs.length === 0) {
-    panel.innerHTML = '<div class="card">Пул пуст — отправь гифку прямо в админ-чат бота, и она появится здесь.</div>';
+    panel.innerHTML = uploadCard + '<div class="card">Пул пуст.</div>';
+    bindGifUpload();
     return;
   }
   const items = gifs.map((g) => `
@@ -735,7 +746,8 @@ async function loadGifs() {
       </div>
     </div>
   `).join('');
-  panel.innerHTML = `<div class="card">${items}</div>`;
+  panel.innerHTML = uploadCard + `<div class="card">${items}</div>`;
+  bindGifUpload();
 
   panel.querySelectorAll('.sticker-item').forEach((item) => {
     const id = item.dataset.id;
@@ -758,6 +770,31 @@ async function loadGifs() {
       video.src = URL.createObjectURL(blob);
     } catch (err) {
       console.error(`gif preview failed for id=${id}:`, err);
+    }
+  });
+}
+
+function bindGifUpload() {
+  document.getElementById('gif-upload-btn').addEventListener('click', async () => {
+    const input = document.getElementById('gif-upload-input');
+    const status = document.getElementById('gif-upload-status');
+    if (!input.files[0]) return;
+    status.textContent = 'Загружаю…';
+    const formData = new FormData();
+    formData.append('gif', input.files[0]);
+    try {
+      const res = await fetch('/troll-admin/api/gifs', {
+        method: 'POST',
+        headers: { 'X-Telegram-Init-Data': initData },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'ошибка');
+      status.textContent = data.added ? 'Добавлено!' : 'Такая гифка уже есть в пуле.';
+      input.value = '';
+      loadGifs();
+    } catch (err) {
+      status.textContent = 'Ошибка: ' + err.message;
     }
   });
 }

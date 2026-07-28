@@ -11,6 +11,7 @@ const {
 const { bot, requireAdmin, fetchTelegramFile } = require('./admin-auth');
 
 const PORT = 4100;
+const ADMIN_CHAT_ID = Number(process.env.ADMIN_CHAT_ID);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const app = express();
@@ -252,13 +253,29 @@ api.get('/stickers/:id/image', async (req, res) => {
   }
 });
 
-// Curated "fuck gif" pool (see maybeSendFuckReaction in bot.js) — filled by
-// sending an animation directly in the bot's admin chat (no bulk-import
-// route exists, unlike stickers, since Telegram has no "GIF set" concept).
-// This panel view is read/delete only.
+// Curated "fuck gif" pool (see maybeSendFuckReaction in bot.js) — also
+// filled by sending an animation directly in the bot's admin chat, since
+// Telegram has no "GIF set" to bulk-import from the way sticker packs work.
 api.get('/gifs', (req, res) => {
   const rows = db.prepare("SELECT id, category, added_at FROM troll_gifs WHERE category = 'fuck' ORDER BY added_at DESC").all();
   res.json(rows);
+});
+
+// Sending it (to the admin chat, the same place the pool is normally filled
+// from) is the only way to get Telegram's file_id back for a raw upload —
+// there's no "store a file without sending it anywhere" endpoint. bot.js's
+// own admin-chat animation listener will also see this message and try the
+// same insert a moment later; harmless; INSERT OR IGNORE dedupes by file_id.
+api.post('/gifs', upload.single('gif'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'gif file required' });
+  try {
+    const sent = await bot.sendAnimation(ADMIN_CHAT_ID, req.file.buffer);
+    if (!sent.animation) return res.status(502).json({ error: 'telegram did not return an animation' });
+    const info = db.prepare("INSERT OR IGNORE INTO troll_gifs (file_id, category) VALUES (?, 'fuck')").run(sent.animation.file_id);
+    res.json({ ok: true, added: info.changes > 0 });
+  } catch (err) {
+    res.status(502).json({ error: 'telegram send failed', detail: err.message });
+  }
 });
 
 api.delete('/gifs/:id', (req, res) => {
