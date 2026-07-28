@@ -508,11 +508,13 @@ async function loadRelationships() {
       ? `left:50%; width:${barWidth}%; background:var(--positive);`
       : `right:50%; width:${barWidth}%; background:var(--warning);`;
     const seenDate = p.last_seen_at ? new Date(p.last_seen_at * 1000).toLocaleDateString('ru-RU') : '—';
+    const genderLabel = p.gender === 'male' ? '♂' : p.gender === 'female' ? '♀' : '❔';
+    const genderTitle = p.gender === 'male' ? 'мужской — клик, чтобы сменить' : p.gender === 'female' ? 'женский — клик, чтобы сменить' : 'не определён — клик, чтобы задать';
     return `
       <div class="person-row" data-user-id="${p.user_id}">
         <div class="avatar">${initial}</div>
         <div class="person-main">
-          <div class="person-name">${name}</div>
+          <div class="person-name">${name} <span class="count gender-badge" data-gender="${p.gender || ''}" title="${genderTitle}" style="cursor:pointer;">${genderLabel}</span></div>
           <div class="person-meta">видели: ${seenDate}</div>
         </div>
         <div class="attitude-wrap">
@@ -532,6 +534,22 @@ async function loadRelationships() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ attitude: Number(next) }),
+      });
+      loadRelationships();
+    });
+  });
+  // Cycles male -> female -> unknown -> male on click, separate from the
+  // row's own click (attitude prompt) via stopPropagation.
+  panel.querySelectorAll('.gender-badge').forEach((badge) => {
+    badge.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const userId = badge.closest('.person-row').dataset.userId;
+      const current = badge.dataset.gender;
+      const next = current === 'male' ? 'female' : current === 'female' ? null : 'male';
+      await apiFetch('/relationships/' + userId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gender: next }),
       });
       loadRelationships();
     });

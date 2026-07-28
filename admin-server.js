@@ -307,12 +307,31 @@ api.get('/relationships', (req, res) => {
 });
 
 api.put('/relationships/:userId', (req, res) => {
-  const { attitude } = req.body || {};
-  if (typeof attitude !== 'number') return res.status(400).json({ error: 'attitude must be a number' });
-  const clamped = Math.max(-100, Math.min(100, Math.round(attitude)));
-  const info = db.prepare('UPDATE troll_relationships SET attitude = ? WHERE user_id = ?').run(clamped, req.params.userId);
+  const { attitude, gender } = req.body || {};
+  const updates = [];
+  const params = [];
+  if (attitude !== undefined) {
+    if (typeof attitude !== 'number') return res.status(400).json({ error: 'attitude must be a number' });
+    updates.push('attitude = ?');
+    params.push(Math.max(-100, Math.min(100, Math.round(attitude))));
+  }
+  // gender is manually correctable here — the auto-detection in bot.js
+  // (see detectAndStoreGender) is a best-effort chat heuristic and never
+  // overwrites itself once set, so this is the only way to fix a wrong
+  // guess (or set/clear it directly).
+  if (gender !== undefined) {
+    if (gender !== null && gender !== 'male' && gender !== 'female') {
+      return res.status(400).json({ error: 'gender must be "male", "female", or null' });
+    }
+    updates.push('gender = ?');
+    params.push(gender);
+  }
+  if (updates.length === 0) return res.status(400).json({ error: 'attitude or gender required' });
+  params.push(req.params.userId);
+  const info = db.prepare(`UPDATE troll_relationships SET ${updates.join(', ')} WHERE user_id = ?`).run(...params);
   if (info.changes === 0) return res.status(404).json({ error: 'not found' });
-  res.json({ userId: Number(req.params.userId), attitude: clamped });
+  const row = db.prepare('SELECT user_id, attitude, gender FROM troll_relationships WHERE user_id = ?').get(req.params.userId);
+  res.json(row);
 });
 
 api.post('/say', upload.single('photo'), async (req, res) => {
