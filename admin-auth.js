@@ -50,6 +50,30 @@ function verifyInitData(initData) {
 const adminCache = new Map();
 const ADMIN_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// getChatMember has no built-in timeout, and this proxy is known to drop
+// roughly half of fresh handshakes under concurrency (see the agent setup
+// comment above) — troll-bot's own bot stays fast because its connection to
+// Telegram is kept warm by continuous long-polling, but this call is a cold
+// one-off every cache miss. Without a timeout+retry here, a dropped
+// handshake just hangs until nginx's proxy_read_timeout gives up and the
+// admin panel shows a 504 with empty tabs.
+const CHAT_MEMBER_TIMEOUT_MS = 8000;
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
+}
+
+async function getChatMemberResilient(chatId, userId) {
+  try {
+    return await withTimeout(bot.getChatMember(chatId, userId), CHAT_MEMBER_TIMEOUT_MS);
+  } catch {
+    return await withTimeout(bot.getChatMember(chatId, userId), CHAT_MEMBER_TIMEOUT_MS);
+  }
+}
+
 async function isAdmin(userId) {
   const cached = adminCache.get(userId);
   if (cached && Date.now() - cached.checkedAt < ADMIN_CACHE_TTL_MS) {
@@ -57,7 +81,7 @@ async function isAdmin(userId) {
   }
   let result = false;
   try {
-    const member = await bot.getChatMember(ADMIN_CHAT_ID, userId);
+    const member = await getChatMemberResilient(ADMIN_CHAT_ID, userId);
     result = ['creator', 'administrator'].includes(member.status);
   } catch {
     result = false;
@@ -80,9 +104,17 @@ async function requireAdmin(req, res, next) {
 // calls this, through the SAME proxy agent used for every other Bot API
 // call — needed since api.telegram.org is blocked from Russia. Never expose
 // the raw getFileLink URL to a browser: it embeds the bot token.
+//
+// The proxy agent caps concurrent connections (maxSockets: 5). Without a
+// timeout here, a dropped/stalled handshake never errors and never
+// releases its socket — and the stickers tab fires ~30 of these in
+// parallel on load, so a couple of stuck ones back up the whole queue and
+// the admin panel ends up with a 504 and empty tabs.
+const FILE_FETCH_TIMEOUT_MS = 10000;
+
 function fetchTelegramFile(fileId) {
   return bot.getFileLink(fileId).then((fileLink) => new Promise((resolve, reject) => {
-    https.get(fileLink, { agent }, (fileRes) => {
+    const req = https.get(fileLink, { agent }, (fileRes) => {
       if (fileRes.statusCode !== 200) {
         reject(new Error(`Telegram file server responded ${fileRes.statusCode} for ${fileLink}`));
         fileRes.resume();
@@ -90,6 +122,9 @@ function fetchTelegramFile(fileId) {
       }
       resolve({ contentType: fileRes.headers['content-type'] || 'application/octet-stream', stream: fileRes });
     }).on('error', reject);
+    req.setTimeout(FILE_FETCH_TIMEOUT_MS, () => {
+      req.destroy(new Error(`timed out fetching ${fileLink}`));
+    });
   }));
 }
 
