@@ -273,6 +273,20 @@ try {
   db.exec('ALTER TABLE troll_state ADD COLUMN stage_started_at INTEGER');
   db.exec('UPDATE troll_state SET stage_started_at = born_at');
 } catch {}
+// Regen sleep: when health drops below a threshold, the troll retreats for
+// a fixed nap that trades weight for health in small ticks (see
+// backgroundTick). regen_sleep_started_at gates "currently resting" and
+// drives progress; last_regen_sleep_at gates the cooldown before the next
+// one is allowed, set whether the nap finished naturally or was cut short
+// by a kick (see performKick).
+for (const column of ['regen_sleep_started_at', 'last_regen_sleep_at']) {
+  try {
+    db.exec(`ALTER TABLE troll_state ADD COLUMN ${column} INTEGER`);
+  } catch {}
+}
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN regen_sleep_ticks_applied INTEGER NOT NULL DEFAULT 0');
+} catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -364,6 +378,12 @@ const DEFAULT_SETTINGS = {
   poop_mood_gain: '8',
   command_cooldown_seconds: '60',
   attitude_fas_delta: '-5',
+  regen_sleep_health_threshold: '50',
+  regen_sleep_duration_minutes: '60',
+  regen_sleep_tick_minutes: '10',
+  regen_sleep_health_per_tick: '5',
+  regen_sleep_weight_loss_per_tick: '1',
+  regen_sleep_cooldown_hours: '2',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -1117,12 +1137,16 @@ bot.onText(/\/troll_here\b/, async (msg) => {
 });
 
 // Current-activity line for the /troll card: sulking (post-kick silence) beats
-// asleep, which beats a random "awake" flavor line — same precedence order
-// used everywhere else silence/sleep interact (silence = total override).
+// regen sleep, which beats ordinary night sleep, which beats a random
+// "awake" flavor line — same precedence order used everywhere else silence/
+// sleep interact (silence = total override).
 function getActivityLine(state) {
   if (isSilenced(state)) {
     const minutesLeft = Math.max(1, Math.ceil((state.silenced_until * 1000 - Date.now()) / 60000));
     return `дуется после пинка (ещё ~${minutesLeft} мин)`;
+  }
+  if (state.regen_sleep_started_at) {
+    return 'спит под мостом и восстанавливается — лучше не будить';
   }
   if (state.is_asleep) {
     return 'спит под мостом, тихо похрапывает';
@@ -1257,6 +1281,23 @@ async function performKick(chatId, from) {
   if (!checkCommandCooldown(from.id, 'kick')) return;
   const now = Math.floor(Date.now() / 1000);
   noticeUser(from.id, from.username, from.first_name);
+
+  // Regen sleep in progress: a kick only wakes him early and banks whatever
+  // regen ticks already landed (see handleRegenSleepTick in backgroundTick)
+  // — no dodge roll, no mood/health hit, no hide-lockout. A separate, much
+  // gentler interruption than a landed kick against an awake troll.
+  if (state.regen_sleep_started_at) {
+    const ticksApplied = state.regen_sleep_ticks_applied;
+    const weightLost = getSettingNumber('regen_sleep_weight_loss_per_tick') * ticksApplied;
+    const healthGained = getSettingNumber('regen_sleep_health_per_tick') * ticksApplied;
+    db.prepare('UPDATE troll_state SET regen_sleep_started_at = NULL, regen_sleep_ticks_applied = 0, last_regen_sleep_at = ? WHERE id = 1').run(now);
+    logAction(from.id, from.username || from.first_name, 'woke_troll');
+    await bot.sendMessage(
+      chatId,
+      `Ай! Твоя разбудить моя раньше время! Моя успеть похудеть на ${weightLost}кг и восстановить ${healthGained} здоровье...`
+    ).catch(() => {});
+    return;
+  }
 
   // Global hide lockout: troll successfully hid after 2 kicks within an
   // hour (see below) — /kick does nothing for anyone until it expires.
@@ -1758,9 +1799,51 @@ function isNightNow() {
 
 const BACKGROUND_TICK_MS = 5 * 60 * 1000;
 
+// Total regen-sleep ticks in a full nap, e.g. 60min/10min = 6.
+function regenSleepTotalTicks() {
+  return Math.floor(getSettingNumber('regen_sleep_duration_minutes') / getSettingNumber('regen_sleep_tick_minutes'));
+}
+
+// Advances (or finishes) an in-progress regen sleep. Runs on the same
+// 5-minute cadence as the rest of backgroundTick — floor(elapsed/tickLength)
+// is resilient to that cadence not lining up exactly with the tick length,
+// so ticks never get double-applied or skipped even if the two drift out of
+// phase with each other.
+function handleRegenSleepTick(state, now) {
+  const tickSeconds = getSettingNumber('regen_sleep_tick_minutes') * 60;
+  const totalTicks = regenSleepTotalTicks();
+  const elapsedTicks = Math.min(Math.floor((now - state.regen_sleep_started_at) / tickSeconds), totalTicks);
+  const healthPerTick = getSettingNumber('regen_sleep_health_per_tick');
+  const weightLossPerTick = getSettingNumber('regen_sleep_weight_loss_per_tick');
+  const newTicks = elapsedTicks - state.regen_sleep_ticks_applied;
+  if (newTicks > 0) {
+    db.prepare(
+      'UPDATE troll_state SET health = MIN(100, health + ?), weight = MAX(?, weight - ?), regen_sleep_ticks_applied = ? WHERE id = 1'
+    ).run(healthPerTick * newTicks, WEIGHT_FLOOR, weightLossPerTick * newTicks, elapsedTicks);
+  }
+  if (elapsedTicks >= totalTicks) {
+    db.prepare('UPDATE troll_state SET regen_sleep_started_at = NULL, regen_sleep_ticks_applied = 0, last_regen_sleep_at = ? WHERE id = 1').run(now);
+    bot.sendMessage(
+      state.chat_id,
+      `Моя выспаться под мостом! Похудеть на ${weightLossPerTick * totalTicks}кг, здоровье восстановить на ${healthPerTick * totalTicks}. Моя снова бодрый!`
+    ).catch(() => {});
+  }
+}
+
 function backgroundTick() {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state) return;
+
+  const now = Math.floor(Date.now() / 1000);
+
+  // Regen sleep overrides everything else while it's running — no night
+  // check, no mischief/hunger/eat/poop/pee this tick. It only ends here
+  // (naturally) or via a /kick (see performKick) — see the eligibility
+  // check further down for how it starts.
+  if (state.regen_sleep_started_at) {
+    handleRegenSleepTick(state, now);
+    return;
+  }
 
   const night = isNightNow();
   if (night && !state.is_asleep) {
@@ -1773,8 +1856,6 @@ function backgroundTick() {
   }
   if (night) return;
 
-  const now = Math.floor(Date.now() / 1000);
-
   if (!state.last_health_tick_at || now - state.last_health_tick_at >= 3600) {
     const decay = getSettingNumber('health_decay_per_hour');
     const regen = getSettingNumber(STAGE_HEALTH_REGEN_KEYS[state.stage] || 'health_regen_baby');
@@ -1786,6 +1867,21 @@ function backgroundTick() {
     } else {
       db.prepare('UPDATE troll_state SET health = MIN(100, health + ?), satiety = MAX(0, satiety - ?), last_health_tick_at = ? WHERE id = 1').run(regen, satietyDecay, now);
     }
+  }
+
+  // Regen sleep: below the health threshold, the troll retreats for a fixed
+  // nap that trades weight for a much faster recovery than the hourly tick
+  // above (see handleRegenSleepTick). Independent of `paused` — like the
+  // health tick itself, this is about the troll's own wellbeing, not a
+  // shalость — and gated by its own cooldown so it can't chain back-to-back.
+  const regenSleepCooldownSeconds = getSettingNumber('regen_sleep_cooldown_hours') * 3600;
+  if (
+    state.health < getSettingNumber('regen_sleep_health_threshold') &&
+    (!state.last_regen_sleep_at || now - state.last_regen_sleep_at >= regenSleepCooldownSeconds)
+  ) {
+    db.prepare('UPDATE troll_state SET regen_sleep_started_at = ?, regen_sleep_ticks_applied = 0 WHERE id = 1').run(now);
+    bot.sendMessage(state.chat_id, 'Моя совсем устать... здоровье совсем плохой... моя пойти спать под мост регенерировать...').catch(() => {});
+    return;
   }
 
   // A running poop-game clock resolves on schedule even while paused —

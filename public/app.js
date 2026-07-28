@@ -59,6 +59,12 @@ const SETTING_LABELS = {
   poop_mood_gain: 'Настроение от какашки',
   command_cooldown_seconds: 'Антиспам-кулдаун команд, сек (1 мин – 1 час)',
   attitude_fas_delta: 'Отношение: команда "Фас"',
+  regen_sleep_health_threshold: 'Регенерационный сон: порог здоровья',
+  regen_sleep_duration_minutes: 'Регенерационный сон: длительность, мин',
+  regen_sleep_tick_minutes: 'Регенерационный сон: интервал тика, мин',
+  regen_sleep_health_per_tick: 'Регенерационный сон: здоровье за тик',
+  regen_sleep_weight_loss_per_tick: 'Регенерационный сон: потеря веса за тик',
+  regen_sleep_cooldown_hours: 'Регенерационный сон: кулдаун, ч',
 };
 const SETTING_RANGES = {
   naughtiness: [1, 10, 1],
@@ -89,6 +95,12 @@ const SETTING_RANGES = {
   poop_mood_gain: [0, 20, 1],
   command_cooldown_seconds: [60, 3600, 60],
   attitude_fas_delta: [-20, 0, 1],
+  regen_sleep_health_threshold: [0, 100, 5],
+  regen_sleep_duration_minutes: [10, 180, 10],
+  regen_sleep_tick_minutes: [5, 30, 5],
+  regen_sleep_health_per_tick: [1, 20, 1],
+  regen_sleep_weight_loss_per_tick: [0, 5, 1],
+  regen_sleep_cooldown_hours: [1, 12, 1],
 };
 
 async function loadStatus() {

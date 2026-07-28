@@ -88,6 +88,7 @@ api.put('/stage', (req, res) => {
       `😈 Дразнили (${totalFor('tease')}): ${peopleFor('tease')}`,
       `🍈 Показывали сиську (${totalFor('boobs')}): ${peopleFor('boobs')}`,
       `😏 Огрызнулся троль (${totalFor('snapped_at')}): ${peopleFor('snapped_at')}`,
+      `😴 Разбудили раньше времени (${totalFor('woke_troll')}): ${peopleFor('woke_troll')}`,
       `🎯 Дотроллил (${totalFor('mischief_targeted')}): ${peopleFor('mischief_targeted')}`,
       `💦 Описал (${totalFor('pee_target')}): ${peopleFor('pee_target')}`,
       `💩 В какашку вступил (${totalFor('poop_victim')}): ${peopleFor('poop_victim')}`,
