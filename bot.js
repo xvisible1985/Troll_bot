@@ -318,11 +318,17 @@ db.exec(`
     first_seen_at INTEGER DEFAULT (strftime('%s','now')),
     last_seen_at INTEGER,
     kick_blocked_until INTEGER,
-    is_enemy INTEGER NOT NULL DEFAULT 0
+    is_enemy INTEGER NOT NULL DEFAULT 0,
+    gender TEXT
   )
 `);
 try {
   db.exec('ALTER TABLE troll_relationships ADD COLUMN kick_blocked_until INTEGER');
+} catch {}
+// Guessed from self-description in chat (see detectAndStoreGender) — 'male',
+// 'female', or NULL (not yet guessed). Sticky once set, same as is_enemy.
+try {
+  db.exec("ALTER TABLE troll_relationships ADD COLUMN gender TEXT");
 } catch {}
 // Enemy status used to be purely live (attitude <= -100, lifted automatically
 // if attitude recovered) — now it's permanent once earned, like mama. The
@@ -959,6 +965,46 @@ function noticeUser(userId, username, firstName) {
     db.prepare('UPDATE troll_relationships SET username = ?, first_name = ?, last_seen_at = ? WHERE user_id = ?').run(username, firstName, now, userId);
   } else {
     db.prepare('INSERT INTO troll_relationships (user_id, username, first_name, attitude, last_seen_at) VALUES (?, ?, ?, 0, ?)').run(userId, username, firstName, now);
+  }
+}
+
+// Guesses grammatical gender from a first-person self-description — the
+// classic Russian trick: past-tense verbs and long adjectives directly
+// after "я" carry an unambiguous masculine/feminine ending ("я устал" vs
+// "я устала", "я пошёл" vs "я пошла", "я такой" vs "я такая"). Checks the
+// word right after "я" and the one after that (to tolerate one adverb in
+// between, e.g. "я вчера пошла"). Best-effort and occasionally wrong for a
+// casual chat heuristic — that's fine, it's never overwritten once set (see
+// detectAndStoreGender), same permanence pattern as mama/enemy.
+function guessGenderFromWord(word) {
+  if (word.endsWith('лась') || word.endsWith('ла')) return 'female';
+  if (word.endsWith('лся') || word.endsWith('л')) return 'male';
+  if (word.endsWith('ая') || word.endsWith('яя')) return 'female';
+  if (word.endsWith('ый') || word.endsWith('ий') || word.endsWith('ой')) return 'male';
+  return null;
+}
+
+function detectGenderFromText(text) {
+  if (!text) return null;
+  const words = text.toLowerCase().match(/[а-яё]+/gi) || [];
+  for (let i = 0; i < words.length; i++) {
+    if (words[i] !== 'я') continue;
+    for (let j = i + 1; j <= Math.min(i + 2, words.length - 1); j++) {
+      const gender = guessGenderFromWord(words[j]);
+      if (gender) return gender;
+    }
+  }
+  return null;
+}
+
+// Sticky like mama/enemy — only ever sets gender from NULL, a later message
+// (even a contradictory one) never overwrites an already-known guess.
+function detectAndStoreGender(userId, text) {
+  const row = db.prepare('SELECT gender FROM troll_relationships WHERE user_id = ?').get(userId);
+  if (!row || row.gender) return;
+  const gender = detectGenderFromText(text);
+  if (gender) {
+    db.prepare('UPDATE troll_relationships SET gender = ? WHERE user_id = ?').run(gender, userId);
   }
 }
 
@@ -1955,6 +2001,7 @@ bot.on('message', (msg) => {
   if (!state || msg.chat.id !== state.chat_id) return;
   pushRecentMessage({ userId: msg.from.id, username: msg.from.username, firstName: msg.from.first_name });
   noticeUser(msg.from.id, msg.from.username, msg.from.first_name);
+  detectAndStoreGender(msg.from.id, msg.text);
 
   // Poop mini-game: while a game clock is running, anyone who writes
   // becomes a candidate to be randomly picked as the "loser" (see
@@ -2046,13 +2093,15 @@ bot.onText(/\/troll_settings\b/, (msg) => {
 bot.onText(/\/troll_relationships\b/, (msg) => {
   if (!isAdminChat(msg)) return;
   const state = db.prepare('SELECT mama_user_id FROM troll_state WHERE id = 1').get();
-  const rows = db.prepare('SELECT user_id, username, first_name, attitude, is_enemy FROM troll_relationships ORDER BY attitude DESC').all();
+  const rows = db.prepare('SELECT user_id, username, first_name, attitude, is_enemy, gender FROM troll_relationships ORDER BY attitude DESC').all();
   if (rows.length === 0) return bot.sendMessage(msg.chat.id, 'Троль пока никого не знает.');
   const lines = rows.map((r) => {
     const name = r.username ? `@${r.username}` : r.first_name;
     const tags = [];
     if (state && state.mama_user_id === r.user_id) tags.push('👑 мама');
     if (r.is_enemy) tags.push('💀 враг');
+    if (r.gender === 'male') tags.push('♂');
+    if (r.gender === 'female') tags.push('♀');
     const tagText = tags.length > 0 ? ` [${tags.join(', ')}]` : '';
     return `${name}: ${attitudeWord(r.attitude)} (${r.attitude > 0 ? '+' : ''}${r.attitude})${tagText}`;
   });
