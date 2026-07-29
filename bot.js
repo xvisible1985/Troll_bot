@@ -1508,6 +1508,12 @@ function actorName(from) {
 // for anything except a landed kick, it just snores through it.
 const REGEN_SLEEP_SNORE_REPLY = '*тихо похрапывает под мостом, восстанавливая силы*';
 
+// Shared by every direct interaction while cocoon_started_at is set (see
+// backgroundTick's freeze and admin-server.js's /cocoon-enter/-exit) — takes
+// priority over every other guard (is_asleep, regen_sleep_started_at), since
+// the cocoon is a total stasis, not just another sleep state.
+const COCOON_REPLY = '🥚 Тролль сейчас в коконе, ему не до тебя...';
+
 // Per-user, per-command anti-spam — in-memory only (a rate limiter doesn't
 // need to survive a restart). Silently drops the repeat instead of
 // replying "not so fast", since a bot reply to spam is itself more spam.
@@ -1531,6 +1537,10 @@ function performPlay(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
   if (!checkCommandCooldown(from.id, 'play')) return;
+  if (state.cocoon_started_at) {
+    bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
+    return;
+  }
   if (state.regen_sleep_started_at) {
     bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
     return;
@@ -1558,6 +1568,11 @@ async function performKick(chatId, from) {
   if (!checkCommandCooldown(from.id, 'kick')) return;
   const now = Math.floor(Date.now() / 1000);
   noticeUser(from.id, from.username, from.first_name);
+
+  if (state.cocoon_started_at) {
+    await bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
+    return;
+  }
 
   // Regen sleep in progress: a kick now rolls the same dodge chance as an
   // awake kick instead of always landing. A dodge leaves the nap running
@@ -1664,6 +1679,10 @@ function performFeed(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
   if (!checkCommandCooldown(from.id, 'feed')) return;
+  if (state.cocoon_started_at) {
+    bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
+    return;
+  }
   if (state.regen_sleep_started_at) {
     bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
     return;
@@ -1710,6 +1729,10 @@ function performTease(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
   if (!checkCommandCooldown(from.id, 'tease')) return;
+  if (state.cocoon_started_at) {
+    bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
+    return;
+  }
   if (state.regen_sleep_started_at) {
     bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
     return;
@@ -1736,6 +1759,10 @@ function performBoobs(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
   if (!checkCommandCooldown(from.id, 'boobs')) return;
+  if (state.cocoon_started_at) {
+    bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
+    return;
+  }
   if (state.regen_sleep_started_at) {
     bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
     return;
