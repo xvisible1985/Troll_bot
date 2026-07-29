@@ -257,7 +257,7 @@ async function renderTrollCard(data) {
     barY += BAR_ROW_H;
   }
 
-  barRow('heart', COLORS.health, 'Здоровье', `${data.health}/100`, data.health, 100, false);
+  barRow('heart', COLORS.health, 'Здоровье', `${data.health}/${data.maxHealth}`, data.health, data.maxHealth, false);
   barRow('drumstick', COLORS.satiety, 'Сытость', `${data.satiety}/100 (${data.satietyWord})`, data.satiety, 100, false);
   barRow('smiley', COLORS.mood, 'Настроение', `${data.mood}/100 (${data.moodWord})`, data.mood, 100, false);
   barRow('handshake', COLORS.attitudePos, 'Отношение к тебе', `${data.attitude > 0 ? '+' : ''}${data.attitude} (${data.attitudeWord})`, data.attitude, 100, true);

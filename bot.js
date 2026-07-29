@@ -1482,6 +1482,7 @@ bot.onText(/\/troll\b/, async (msg) => {
   const relRow = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(msg.from.id);
   const attitude = relRow ? relRow.attitude : 0;
   const activity = getActivityLine(state);
+  const cocoonCaption = state.cocoon_started_at ? buildAllTimeStatsCaption(state) : null;
 
   // Rendered fresh per call (attitude is per-viewer, activity/stats change
   // constantly) — falls back to the old plain-text card if canvas ever
@@ -1490,6 +1491,7 @@ bot.onText(/\/troll\b/, async (msg) => {
   try {
     const buffer = await renderTrollCard({
       health: state.health,
+      maxHealth: state.max_health,
       satiety: state.satiety,
       satietyWord: satietyWord(state.satiety),
       mood: state.mood,
@@ -1500,11 +1502,12 @@ bot.onText(/\/troll\b/, async (msg) => {
       weight: state.weight,
       activity,
     });
-    await bot.sendPhoto(msg.chat.id, buffer, TROLL_ACTION_KEYBOARD);
+    const photoOptions = cocoonCaption ? { ...TROLL_ACTION_KEYBOARD, caption: cocoonCaption } : TROLL_ACTION_KEYBOARD;
+    await bot.sendPhoto(msg.chat.id, buffer, photoOptions);
   } catch (err) {
     console.error('troll card render failed, falling back to text:', err.message);
     const lines = [
-      `❤️ Здоровье: ${state.health}/100`,
+      `❤️ Здоровье: ${state.health}/${state.max_health}`,
       `🍖 Сытость: ${state.satiety}/100 (${satietyWord(state.satiety)})`,
       `⚖️ Вес: ${state.weight} кг`,
       `😊 Настроение: ${moodWord(state.mood)}`,
@@ -1512,6 +1515,7 @@ bot.onText(/\/troll\b/, async (msg) => {
       `🎭 Занятие: ${activity}`,
       `🤝 Отношение к тебе: ${attitudeWord(attitude)} (${attitude > 0 ? '+' : ''}${attitude})`,
     ];
+    if (cocoonCaption) lines.push('', cocoonCaption);
     bot.sendMessage(msg.chat.id, lines.join('\n'), TROLL_ACTION_KEYBOARD);
   }
 });
@@ -1629,7 +1633,7 @@ async function performKick(chatId, from) {
     const healthGained = getSettingNumber('regen_sleep_health_per_tick') * ticksApplied;
     const sleepSilencedUntil = now + 60 * 60;
     db.prepare(
-      'UPDATE troll_state SET regen_sleep_started_at = NULL, regen_sleep_ticks_applied = 0, last_regen_sleep_at = ?, health = MAX(0, MIN(100, health + ?) - 5), mood = MAX(0, mood - 20), silenced_until = ? WHERE id = 1'
+      'UPDATE troll_state SET regen_sleep_started_at = NULL, regen_sleep_ticks_applied = 0, last_regen_sleep_at = ?, health = MAX(0, MIN(max_health, health + ?) - 5), mood = MAX(0, mood - 20), silenced_until = ? WHERE id = 1'
     ).run(now, healthGained, sleepSilencedUntil);
     logAction(from.id, from.username || from.first_name, 'kick');
     const oldAttitudeSleep = adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
@@ -2227,7 +2231,7 @@ function handleRegenSleepTick(state, now) {
   const newTicks = elapsedTicks - state.regen_sleep_ticks_applied;
   if (newTicks > 0) {
     db.prepare(
-      'UPDATE troll_state SET health = MIN(100, health + ?), weight = MAX(?, weight - ?), regen_sleep_ticks_applied = ? WHERE id = 1'
+      'UPDATE troll_state SET health = MIN(max_health, health + ?), weight = MAX(?, weight - ?), regen_sleep_ticks_applied = ? WHERE id = 1'
     ).run(healthPerTick * newTicks, WEIGHT_FLOOR, weightLossPerTick * newTicks, elapsedTicks);
   }
   if (elapsedTicks >= totalTicks) {
@@ -2281,7 +2285,7 @@ function backgroundTick() {
     if (state.satiety < 30) {
       db.prepare('UPDATE troll_state SET health = MAX(0, health - ?), satiety = MAX(0, satiety - ?), last_health_tick_at = ? WHERE id = 1').run(decay, satietyDecay, now);
     } else {
-      db.prepare('UPDATE troll_state SET health = MIN(100, health + ?), satiety = MAX(0, satiety - ?), last_health_tick_at = ? WHERE id = 1').run(regen, satietyDecay, now);
+      db.prepare('UPDATE troll_state SET health = MIN(max_health, health + ?), satiety = MAX(0, satiety - ?), last_health_tick_at = ? WHERE id = 1').run(regen, satietyDecay, now);
     }
   }
 
