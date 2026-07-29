@@ -33,17 +33,24 @@ try {
       expires_at INTEGER NOT NULL
     )
   `);
+  // Distinguishes the poop-trap mark (tg-bot plays it as an ironic "smells
+  // of violets" line) from the plain pee-target mark ("smells of troll
+  // pee") — see markSmelly below and tg-bot's reply logic. Separate ALTER
+  // since the column didn't exist when troll_smell was first deployed.
+  try {
+    tgBotDb.exec("ALTER TABLE troll_smell ADD COLUMN reason TEXT NOT NULL DEFAULT 'pee'");
+  } catch {}
 } catch (err) {
   console.error('Could not open tg-bot\'s mutes.db — the "smell" feature is disabled. Set TG_BOT_DB_PATH in .env if the path is wrong:', err.message);
 }
 
-function markSmelly(userId, durationSeconds) {
+function markSmelly(userId, durationSeconds, reason) {
   if (!tgBotDb) return;
   const expiresAt = Math.floor(Date.now() / 1000) + durationSeconds;
   tgBotDb.prepare(
-    'INSERT INTO troll_smell (user_id, marked_at, expires_at) VALUES (?, strftime(\'%s\',\'now\'), ?) ' +
-    'ON CONFLICT(user_id) DO UPDATE SET marked_at = strftime(\'%s\',\'now\'), expires_at = excluded.expires_at'
-  ).run(userId, expiresAt);
+    'INSERT INTO troll_smell (user_id, marked_at, expires_at, reason) VALUES (?, strftime(\'%s\',\'now\'), ?, ?) ' +
+    'ON CONFLICT(user_id) DO UPDATE SET marked_at = strftime(\'%s\',\'now\'), expires_at = excluded.expires_at, reason = excluded.reason'
+  ).run(userId, expiresAt, reason);
 }
 
 let agent;
@@ -2054,7 +2061,7 @@ function resolvePoopGameIfDue(state, now) {
   const name = getMentionName(loser);
   bot.sendMessage(state.chat_id, `💩 Ой-ой, ${name} вступить в моя какашка! Твоя теперь вонять целый час...`).catch(() => {});
   logAction(loser.userId, loser.username || loser.firstName, 'poop_victim');
-  markSmelly(loser.userId, 3600);
+  markSmelly(loser.userId, 3600, 'poop');
 }
 
 // Weighted random target (same pool/weighting as targeted mischief) half
@@ -2069,7 +2076,7 @@ function triggerPee(chatId) {
     const target = getMentionName(targetInfo.entry);
     bot.sendMessage(chatId, `💦 Моя метко пометить территория, заодно окатить ${target}!`).catch(() => {});
     logAction(targetInfo.entry.userId, targetInfo.entry.username || targetInfo.entry.firstName, 'pee_target');
-    markSmelly(targetInfo.entry.userId, 3600);
+    markSmelly(targetInfo.entry.userId, 3600, 'pee');
   } else {
     bot.sendMessage(chatId, '💦 Моя пометить территория под мостом.').catch(() => {});
   }
