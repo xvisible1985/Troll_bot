@@ -1178,6 +1178,12 @@ function checkMamaPromotion(chatId, userId) {
 // transition into it, not every further negative delta while already there.
 function checkEnemyDeclaration(chatId, from, oldAttitude) {
   if (oldAttitude <= -100) return;
+  // Mama can never be flagged an enemy, however far her attitude drops —
+  // is_enemy would otherwise make findEnemyAmong guarantee-target her in
+  // triggerMischief/triggerPee, bypassing the mama exemption in
+  // pickMischiefTarget entirely, and getMentionName checks isEnemy before
+  // isMama so she'd display as "мой враг" instead of "мама".
+  if (isMama(from.id)) return;
   const row = db.prepare('SELECT attitude, is_enemy FROM troll_relationships WHERE user_id = ?').get(from.id);
   if (!row || row.attitude > -100 || row.is_enemy) return;
   db.prepare('UPDATE troll_relationships SET is_enemy = 1 WHERE user_id = ?').run(from.id);
@@ -1816,6 +1822,14 @@ bot.onText(TROLL_FAS_REGEX, async (msg, match) => {
     return;
   }
 
+  // Mama is off-limits even to an explicit "Фас" order from someone the
+  // troll otherwise adores — this is the one deliberate way someone could
+  // otherwise sic the troll on her.
+  if (isMama(target.userId)) {
+    bot.sendMessage(msg.chat.id, 'Не-не-не! Моя никогда не обижать мама, даже если твоя просить! 💕').catch(() => {});
+    return;
+  }
+
   const now = Math.floor(Date.now() / 1000);
   db.prepare('UPDATE troll_state SET troll_fas_until = ?, troll_fas_target_user_id = ? WHERE id = 1').run(now + 30 * 60, target.userId);
   // Using the troll like an attack dog costs a little of its fondness even
@@ -1898,9 +1912,15 @@ function getMentionName(entry) {
 // Weighted pick from recentMessages: the more a person is disliked, the more
 // likely they are to be chosen as a mischief target (weight = 100 - attitude),
 // floored at 10 so even a beloved (+100) person can still occasionally be
-// picked, never dropping to zero chance.
+// picked, never dropping to zero chance. Mama is the one exception — she's
+// filtered out entirely before weighting, not just floored, since she's a
+// singular permanent role rather than an ordinary beloved user. Returns null
+// if that leaves nobody eligible; every caller must handle that (fall back
+// to an untargeted flavor, don't assume a target always comes back).
 function pickMischiefTarget() {
-  const candidates = recentMessages.map((entry) => {
+  const eligible = recentMessages.filter((entry) => !isMama(entry.userId));
+  if (eligible.length === 0) return null;
+  const candidates = eligible.map((entry) => {
     const row = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(entry.userId);
     const attitude = row ? row.attitude : 0;
     const weight = Math.max(10, 100 - attitude);
@@ -1926,6 +1946,11 @@ const TARGETED_ACTION_TIER_CATEGORIES = ['targeted_action_mild', 'targeted_actio
 function getFasTargetInfo(state) {
   const now = Math.floor(Date.now() / 1000);
   if (!state.troll_fas_until || state.troll_fas_until < now || !state.troll_fas_target_user_id) return null;
+  // Defense in depth: the onText handler already refuses to start a "Фас"
+  // order against mama, but this also covers the rare case where the
+  // target gets promoted to mama (via someone else's /play or /feed) while
+  // an order against them is already running.
+  if (isMama(state.troll_fas_target_user_id)) return null;
   const row = db.prepare(
     'SELECT user_id, username, first_name, attitude FROM troll_relationships WHERE user_id = ?'
   ).get(state.troll_fas_target_user_id);
@@ -1951,26 +1976,30 @@ function triggerMischief(chatId) {
   const fasTargetInfo = getFasTargetInfo(state);
   if (fasTargetInfo || enemyEntry || (recentMessages.length > 0 && Math.random() < 0.5)) {
     const targetInfo = fasTargetInfo || (enemyEntry ? { entry: enemyEntry, attitude: -100 } : pickMischiefTarget());
-    const target = getMentionName(targetInfo.entry);
-    const escalationThreshold = getSettingNumber('attitude_escalation_threshold');
-    const maxTier = STAGE_MAX_MISCHIEF_TIER[stage] ?? 2;
-    const effectiveTier = targetInfo.attitude <= escalationThreshold ? Math.min(maxTier, tier + 1) : tier;
-    logAction(targetInfo.entry.userId, targetInfo.entry.username || targetInfo.entry.firstName, 'mischief_targeted');
-    if (Math.random() < 0.5) {
-      const phraseCategory = TARGETED_PHRASE_TIER_CATEGORIES[effectiveTier];
-      const sticker = Math.random() < 0.5 ? pickStickerForStage(phraseCategory, stage) : null;
-      if (sticker) bot.sendSticker(chatId, sticker.fileId).catch(() => {});
-      if (!sticker || !sticker.hasOwnText) {
-        const template = pickPhraseForStage(phraseCategory, stage, 'подмигнул {user}');
-        bot.sendMessage(chatId, `*${template.replace(/\{user\}/g, target)}*`).catch(() => {});
+    // pickMischiefTarget can come back null (everyone recent is mama) —
+    // falls through to the untargeted flavor below instead of crashing.
+    if (targetInfo) {
+      const target = getMentionName(targetInfo.entry);
+      const escalationThreshold = getSettingNumber('attitude_escalation_threshold');
+      const maxTier = STAGE_MAX_MISCHIEF_TIER[stage] ?? 2;
+      const effectiveTier = targetInfo.attitude <= escalationThreshold ? Math.min(maxTier, tier + 1) : tier;
+      logAction(targetInfo.entry.userId, targetInfo.entry.username || targetInfo.entry.firstName, 'mischief_targeted');
+      if (Math.random() < 0.5) {
+        const phraseCategory = TARGETED_PHRASE_TIER_CATEGORIES[effectiveTier];
+        const sticker = Math.random() < 0.5 ? pickStickerForStage(phraseCategory, stage) : null;
+        if (sticker) bot.sendSticker(chatId, sticker.fileId).catch(() => {});
+        if (!sticker || !sticker.hasOwnText) {
+          const template = pickPhraseForStage(phraseCategory, stage, 'подмигнул {user}');
+          bot.sendMessage(chatId, `*${template.replace(/\{user\}/g, target)}*`).catch(() => {});
+        }
+      } else {
+        const actionCategory = resolveTargetedActionCategory(targetInfo.entry.userId, TARGETED_ACTION_TIER_CATEGORIES[effectiveTier]);
+        const template = pickPhraseForStage(actionCategory, stage, 'подшутить над {user}');
+        const action = template.replace(/\{user\}/g, target);
+        bot.sendMessage(chatId, rollTrollTry(action)).catch(() => {});
       }
-    } else {
-      const actionCategory = resolveTargetedActionCategory(targetInfo.entry.userId, TARGETED_ACTION_TIER_CATEGORIES[effectiveTier]);
-      const template = pickPhraseForStage(actionCategory, stage, 'подшутить над {user}');
-      const action = template.replace(/\{user\}/g, target);
-      bot.sendMessage(chatId, rollTrollTry(action)).catch(() => {});
+      return;
     }
-    return;
   }
   const mischiefCategory = MISCHIEF_TIER_CATEGORIES[tier];
   const sticker = Math.random() < 0.5 ? pickStickerForStage(mischiefCategory, stage) : null;
@@ -1999,6 +2028,9 @@ function triggerBegging(chatId, stage) {
 async function triggerHungryGrab(chatId, stage) {
   if (recentMessages.length === 0) return triggerBegging(chatId, stage);
   const targetInfo = pickMischiefTarget();
+  // Also null if everyone who's spoken recently is mama (see
+  // pickMischiefTarget) — same begging fallback as nobody having spoken at all.
+  if (!targetInfo) return triggerBegging(chatId, stage);
   const target = getMentionName(targetInfo.entry);
 
   const grabTemplate = pickPhraseForStage('hunger_grab_action', stage, 'вцепиться в сиську {user} от голод');
@@ -2071,8 +2103,12 @@ function triggerPee(chatId) {
   db.prepare('UPDATE troll_state SET weight = MAX(?, weight - ?) WHERE id = 1').run(WEIGHT_FLOOR, weightLoss);
   logAction(0, 'тролль', 'pee');
   const enemyEntry = findEnemyAmong(recentMessages);
-  if (enemyEntry || (recentMessages.length > 0 && Math.random() < 0.5)) {
-    const targetInfo = enemyEntry ? { entry: enemyEntry } : pickMischiefTarget();
+  // pickMischiefTarget can return null (everyone recent is mama) — treated
+  // the same as "didn't roll a target this time", not a crash.
+  const targetInfo = enemyEntry
+    ? { entry: enemyEntry }
+    : (recentMessages.length > 0 && Math.random() < 0.5) ? pickMischiefTarget() : null;
+  if (targetInfo) {
     const target = getMentionName(targetInfo.entry);
     bot.sendMessage(chatId, `💦 Моя метко пометить территория, заодно окатить ${target}!`).catch(() => {});
     logAction(targetInfo.entry.userId, targetInfo.entry.username || targetInfo.entry.firstName, 'pee_target');
@@ -2244,7 +2280,10 @@ bot.on('message', (msg) => {
   // becomes a candidate to be randomly picked as the "loser" (see
   // resolvePoopGameIfDue in backgroundTick).
   const nowForGame = Math.floor(Date.now() / 1000);
-  if (state.poop_game_ends_at && nowForGame < state.poop_game_ends_at) {
+  // Mama never enters the candidate pool at all — she can chat freely
+  // during a running poop game without risk of becoming the "loser" (see
+  // resolvePoopGameIfDue, which just fizzles if the pool ends up empty).
+  if (state.poop_game_ends_at && nowForGame < state.poop_game_ends_at && !isMama(msg.from.id)) {
     poopGameCandidates.set(msg.from.id, { userId: msg.from.id, username: msg.from.username, firstName: msg.from.first_name });
   }
 
