@@ -39,6 +39,7 @@ api.get('/status', (req, res) => {
   res.json({
     exists: true,
     health: state.health,
+    maxHealth: state.max_health,
     mood: state.mood,
     moodWord: moodWord(state.mood),
     satiety: state.satiety,
@@ -48,6 +49,7 @@ api.get('/status', (req, res) => {
     stageName: STAGE_NAMES[state.stage],
     activity: getActivityLine(state),
     paused: getSetting('paused') === '1',
+    cocoon: !!state.cocoon_started_at,
   });
 });
 
@@ -155,6 +157,38 @@ api.post('/pause', (req, res) => {
 api.post('/resume', (req, res) => {
   setSetting('paused', '0');
   res.json({ paused: false });
+});
+
+api.post('/cocoon-enter', (req, res) => {
+  const state = db.prepare('SELECT cocoon_started_at, chat_id FROM troll_state WHERE id = 1').get();
+  if (!state) return res.status(404).json({ error: 'no troll yet' });
+  if (!state.cocoon_started_at) {
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare('UPDATE troll_state SET cocoon_started_at = ? WHERE id = 1').run(now);
+    bot.sendMessage(state.chat_id, '🥚 Тролль сворачивается в кокон и начинает перерождение...').catch(() => {});
+  }
+  res.json({ cocoon: true });
+});
+
+// On the FIRST ever exit (has_transformed still 0), this also applies a
+// one-time permanent upgrade: max_health 100 -> 200 (fully healed), and the
+// troll's current (not just default) health decay/regen settings doubled to
+// match the new scale. A later cocoon cycle just toggles cocoon_started_at
+// with no further upgrade — has_transformed makes sure of that.
+api.post('/cocoon-exit', (req, res) => {
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  if (!state) return res.status(404).json({ error: 'no troll yet' });
+  if (state.cocoon_started_at) {
+    db.prepare('UPDATE troll_state SET cocoon_started_at = NULL WHERE id = 1').run();
+    bot.sendMessage(state.chat_id, '🦋 Тролль вышел из кокона!').catch(() => {});
+    if (!state.has_transformed) {
+      for (const key of ['health_decay_per_hour', 'health_regen_baby', 'health_regen_young', 'health_regen_adult', 'health_regen_old']) {
+        setSetting(key, String(Number(getSetting(key)) * 2));
+      }
+      db.prepare('UPDATE troll_state SET max_health = 200, health = 200, has_transformed = 1 WHERE id = 1').run();
+    }
+  }
+  res.json({ cocoon: false });
 });
 
 api.post('/reset', (req, res) => {
