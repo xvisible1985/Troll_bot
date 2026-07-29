@@ -1475,6 +1475,11 @@ function actorName(from) {
   return from.username ? `@${from.username}` : from.first_name;
 }
 
+// Shared by every non-kick direct interaction while regen_sleep_started_at
+// is set (see backgroundTick/handleRegenSleepTick) — the troll doesn't wake
+// for anything except a landed kick, it just snores through it.
+const REGEN_SLEEP_SNORE_REPLY = '*тихо похрапывает под мостом, восстанавливая силы*';
+
 // Per-user, per-command anti-spam — in-memory only (a rate limiter doesn't
 // need to survive a restart). Silently drops the repeat instead of
 // replying "not so fast", since a bot reply to spam is itself more spam.
@@ -1498,6 +1503,10 @@ function performPlay(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
   if (!checkCommandCooldown(from.id, 'play')) return;
+  if (state.regen_sleep_started_at) {
+    bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
+    return;
+  }
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
     sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from), from.id);
@@ -1522,19 +1531,32 @@ async function performKick(chatId, from) {
   const now = Math.floor(Date.now() / 1000);
   noticeUser(from.id, from.username, from.first_name);
 
-  // Regen sleep in progress: a kick only wakes him early and banks whatever
-  // regen ticks already landed (see handleRegenSleepTick in backgroundTick)
-  // — no dodge roll, no mood/health hit, no hide-lockout. A separate, much
-  // gentler interruption than a landed kick against an awake troll.
+  // Regen sleep in progress: a kick now rolls the same dodge chance as an
+  // awake kick instead of always landing. A dodge leaves the nap running
+  // completely untouched — just a sleepy insult, no state change. A landed
+  // kick still wakes him early and banks whatever regen ticks already
+  // accrued (see handleRegenSleepTick in backgroundTick), but now on top of
+  // that applies the same mood/health/silence penalty as a normal landed
+  // kick — being asleep no longer makes getting kicked free.
   if (state.regen_sleep_started_at) {
+    const sleepDodgeRoll = rollTrollTryResult(`увернуться от пинка ${actorName(from)}`);
+    if (sleepDodgeRoll.success) {
+      await bot.sendMessage(chatId, '*всхрапывает* Твоя идти на хуй!! *и дальше спит*').catch(() => {});
+      return;
+    }
     const ticksApplied = state.regen_sleep_ticks_applied;
     const weightLost = getSettingNumber('regen_sleep_weight_loss_per_tick') * ticksApplied;
     const healthGained = getSettingNumber('regen_sleep_health_per_tick') * ticksApplied;
-    db.prepare('UPDATE troll_state SET regen_sleep_started_at = NULL, regen_sleep_ticks_applied = 0, last_regen_sleep_at = ? WHERE id = 1').run(now);
-    logAction(from.id, from.username || from.first_name, 'woke_troll');
+    const sleepSilencedUntil = now + 60 * 60;
+    db.prepare(
+      'UPDATE troll_state SET regen_sleep_started_at = NULL, regen_sleep_ticks_applied = 0, last_regen_sleep_at = ?, health = MAX(0, MIN(100, health + ?) - 5), mood = MAX(0, mood - 20), silenced_until = ? WHERE id = 1'
+    ).run(now, healthGained, sleepSilencedUntil);
+    logAction(from.id, from.username || from.first_name, 'kick');
+    const oldAttitudeSleep = adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
+    checkEnemyDeclaration(chatId, from, oldAttitudeSleep);
     await bot.sendMessage(
       chatId,
-      `Ай! Твоя разбудить моя раньше время! Моя успеть похудеть на ${weightLost}кг и восстановить ${healthGained} здоровье...`
+      `Ай! Твоя разбудить моя пинком! Моя успеть похудеть на ${weightLost}кг и восстановить ${healthGained} здоровье, но твоя пинок совсем испортить моя настроение!`
     ).catch(() => {});
     return;
   }
@@ -1614,6 +1636,10 @@ function performFeed(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
   if (!checkCommandCooldown(from.id, 'feed')) return;
+  if (state.regen_sleep_started_at) {
+    bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
+    return;
+  }
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
     sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from), from.id);
@@ -1656,6 +1682,10 @@ function performTease(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
   if (!checkCommandCooldown(from.id, 'tease')) return;
+  if (state.regen_sleep_started_at) {
+    bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
+    return;
+  }
   if (state.is_asleep) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
     sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from), from.id);
@@ -1678,6 +1708,10 @@ function performBoobs(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
   if (!checkCommandCooldown(from.id, 'boobs')) return;
+  if (state.regen_sleep_started_at) {
+    bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
+    return;
+  }
   noticeUser(from.id, from.username, from.first_name);
   // Only a KNOWN male gets turned away — unknown gender (not yet detected,
   // see detectAndStoreGender) still goes through normally, so new users
