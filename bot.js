@@ -2181,6 +2181,13 @@ function backgroundTick() {
 
   const now = Math.floor(Date.now() / 1000);
 
+  // Cocoon overrides absolutely everything, even regen sleep — the troll
+  // is in full stasis, admin-controlled only (see admin-server.js's
+  // /cocoon-enter and /cocoon-exit). Every cooldown/tick timestamp just
+  // stays frozen and resumes from real elapsed time once the cocoon ends,
+  // same as if the whole process had been down for that period.
+  if (state.cocoon_started_at) return;
+
   // Regen sleep overrides everything else while it's running — no night
   // check, no mischief/hunger/eat/poop/pee this tick. It only ends here
   // (naturally) or via a /kick (see performKick) — see the eligibility
