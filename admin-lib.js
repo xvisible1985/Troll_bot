@@ -66,6 +66,9 @@ function isSilenced(state) {
 }
 
 function getActivityLine(state) {
+  if (state.cocoon_started_at) {
+    return 'в коконе, перерождается — полная стазис';
+  }
   if (isSilenced(state)) {
     const minutesLeft = Math.max(1, Math.ceil((state.silenced_until * 1000 - Date.now()) / 60000));
     return `дуется после пинка (ещё ~${minutesLeft} мин)`;

@@ -1409,6 +1409,9 @@ bot.onText(/\/troll_here\b/, async (msg) => {
 // "awake" flavor line — same precedence order used everywhere else silence/
 // sleep interact (silence = total override).
 function getActivityLine(state) {
+  if (state.cocoon_started_at) {
+    return 'в коконе, перерождается — полная стазис';
+  }
   if (isSilenced(state)) {
     const minutesLeft = Math.max(1, Math.ceil((state.silenced_until * 1000 - Date.now()) / 60000));
     return `дуется после пинка (ещё ~${minutesLeft} мин)`;
