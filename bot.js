@@ -1463,10 +1463,12 @@ function buildAllTimeStatsCaption(state) {
     '📊 Статистика за всю жизнь:',
     `🎮 Игр: ${totalFor('play')}`,
     `🍗 Кормлений: ${feedTotal} (перекормлено: ${totalFor('feed_overeat')})`,
+    `🚫 Отказано сытому: ${totalFor('feed_reject')}`,
     `👢 Пинков: ${totalFor('kick')}`,
     `😈 Дразнилок: ${totalFor('tease')}`,
     `🍈 Показов сиськи: ${totalFor('boobs')}`,
     `😏 Огрызнулся: ${totalFor('snapped_at')}`,
+    `😴 Разбудили раньше времени: ${totalFor('woke_troll')}`,
     `🎯 Дотроллил: ${totalFor('mischief_targeted')}`,
     `💦 Описал: ${totalFor('pee_target')}`,
     `💩 В какашку попали: ${totalFor('poop_victim')}`,
@@ -1866,9 +1868,13 @@ bot.onText(/\/teach ([\s\S]+)/, (msg, match) => {
 const TROLL_FAS_REGEX = /(?:^|\s)тролл?ь\s+фас(?:\s+@?(\S+))?/i;
 
 bot.onText(TROLL_FAS_REGEX, async (msg, match) => {
-  const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
+  const state = db.prepare('SELECT chat_id, cocoon_started_at FROM troll_state WHERE id = 1').get();
   if (!state || msg.chat.id !== state.chat_id) return;
   if (!checkCommandCooldown(msg.from.id, 'fas')) return;
+  if (state.cocoon_started_at) {
+    await bot.sendMessage(msg.chat.id, COCOON_REPLY).catch(() => {});
+    return;
+  }
 
   if (pickTeaseCategory(msg.from.id) !== 'tease_adoring') {
     bot.sendMessage(
@@ -2365,6 +2371,12 @@ bot.on('message', (msg) => {
   if (msg.text && msg.text.startsWith('/')) return;
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || msg.chat.id !== state.chat_id) return;
+  // Cocoon is total stasis — skip everything below (recent-message
+  // tracking, poop-game candidacy, the enemy-hide roll, passive teach-by-
+  // reply, name-addressed comebacks, message-count mischief, learned-phrase
+  // chatter). None of it should happen while frozen, and none of it needs
+  // special-casing individually — one early return covers the whole handler.
+  if (state.cocoon_started_at) return;
   pushRecentMessage({ userId: msg.from.id, username: msg.from.username, firstName: msg.from.first_name });
   noticeUser(msg.from.id, msg.from.username, msg.from.first_name);
   detectAndStoreGender(msg.from.id, msg.text);
