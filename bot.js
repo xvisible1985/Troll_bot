@@ -1438,6 +1438,43 @@ const TROLL_ACTION_KEYBOARD = {
   },
 };
 
+// All-time activity totals, shown as the /troll photo's caption only while
+// cocooned (see backgroundTick's freeze and admin-server.js's /cocoon-enter/
+// -exit) — same category set as admin-server.js's per-stage report, just
+// scoped to the troll's whole life (since born_at, not stage_started_at)
+// and without the per-person breakdown, since this is a quick glance during
+// stasis, not an audit. Admin-server.js is a separate process and can't
+// require this file (see admin-lib.js's file-level comment on why), so this
+// is intentionally a standalone duplicate of that aggregation shape rather
+// than a shared function.
+function buildAllTimeStatsCaption(state) {
+  const since = state.born_at || 0;
+  const rows = db.prepare(
+    'SELECT action, COUNT(*) AS n FROM troll_actions WHERE created_at >= ? GROUP BY action'
+  ).all(since);
+  const totals = {};
+  for (const row of rows) totals[row.action] = row.n;
+  const totalFor = (action) => totals[action] || 0;
+  const feedTotal = totalFor('feed') + totalFor('feed_overeat');
+  return [
+    '📊 Статистика за всю жизнь:',
+    `🎮 Игр: ${totalFor('play')}`,
+    `🍗 Кормлений: ${feedTotal} (перекормлено: ${totalFor('feed_overeat')})`,
+    `👢 Пинков: ${totalFor('kick')}`,
+    `😈 Дразнилок: ${totalFor('tease')}`,
+    `🍈 Показов сиськи: ${totalFor('boobs')}`,
+    `😏 Огрызнулся: ${totalFor('snapped_at')}`,
+    `🎯 Дотроллил: ${totalFor('mischief_targeted')}`,
+    `💦 Описал: ${totalFor('pee_target')}`,
+    `💩 В какашку попали: ${totalFor('poop_victim')}`,
+    `📖 Выучено фраз: ${totalFor('teach')}`,
+    `— — —`,
+    `💩 Покакал: ${totalFor('poop')}`,
+    `💦 Пописал: ${totalFor('pee')}`,
+    `🍽️ Поел сам: ${totalFor('self_eat')}`,
+  ].join('\n');
+}
+
 bot.onText(/\/troll\b/, async (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет. Позови его через /troll_here.');
