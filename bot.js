@@ -296,6 +296,21 @@ for (const column of ['regen_sleep_started_at', 'last_regen_sleep_at']) {
 try {
   db.exec('ALTER TABLE troll_state ADD COLUMN regen_sleep_ticks_applied INTEGER NOT NULL DEFAULT 0');
 } catch {}
+// Cocoon/transformation: cocoon_started_at gates the full freeze (see
+// backgroundTick and the perform* guards below) — NULL means normal life.
+// max_health replaces the old hardcoded 100 ceiling everywhere health is
+// clamped; it only ever changes (100 -> 200) once, the first time the
+// troll emerges from the cocoon, guarded by has_transformed so a second
+// cocoon cycle later doesn't double it again.
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN cocoon_started_at INTEGER');
+} catch {}
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN max_health INTEGER NOT NULL DEFAULT 100');
+} catch {}
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN has_transformed INTEGER NOT NULL DEFAULT 0');
+} catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
