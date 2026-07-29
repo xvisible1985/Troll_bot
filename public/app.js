@@ -122,17 +122,18 @@ async function loadStatus() {
   }
   sub.textContent = data.stageName;
   chips.innerHTML = `
-    <div class="chip"><span class="dot"></span>здоровье <b class="mono">${data.health}</b></div>
+    <div class="chip"><span class="dot"></span>здоровье <b class="mono">${data.health}/${data.maxHealth}</b></div>
     <div class="chip${data.satiety < 50 ? ' warn' : ''}"><span class="dot"></span>сытость <b class="mono">${data.satiety}</b></div>
     <div class="chip"><span class="dot"></span>настроение <b>${data.moodWord}</b></div>
     ${data.paused ? '<div class="chip warn"><span class="dot"></span>шалости на паузе</div>' : ''}
+    ${data.cocoon ? '<div class="chip warn"><span class="dot"></span>тролль в коконе</div>' : ''}
   `;
   panel.innerHTML = `
     <div class="card">
       <p class="eyebrow">Сейчас</p>
       <div class="stat-grid">
-        <div class="stat"><div class="label">❤️ Здоровье</div><div class="value mono">${data.health}/100</div>
-          <div class="bar-track"><div class="bar-fill" style="width:${data.health}%"></div></div></div>
+        <div class="stat"><div class="label">❤️ Здоровье</div><div class="value mono">${data.health}/${data.maxHealth}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${Math.round(100 * data.health / data.maxHealth)}%"></div></div></div>
         <div class="stat"><div class="label">🍖 Сытость</div><div class="value mono">${data.satiety}/100</div>
           <div class="bar-track"><div class="bar-fill" style="width:${data.satiety}%"></div></div>
           <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">${data.satietyWord}</div></div>
@@ -151,6 +152,7 @@ async function loadStatus() {
       <p class="eyebrow">Быстрые действия</p>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="btn ghost" id="btn-pause">${data.paused ? '▶ Возобновить' : '⏸ Пауза шалостей'}</button>
+        <button class="btn ghost" id="btn-cocoon">${data.cocoon ? '🦋 Вывести из кокона' : '🥚 Кокон'}</button>
         <button class="btn ghost" id="btn-reset">↺ Полный сброс</button>
       </div>
     </div>
@@ -168,6 +170,10 @@ async function loadStatus() {
   `;
   document.getElementById('btn-pause').addEventListener('click', async () => {
     await apiFetch(data.paused ? '/resume' : '/pause', { method: 'POST' });
+    loadStatus();
+  });
+  document.getElementById('btn-cocoon').addEventListener('click', async () => {
+    await apiFetch(data.cocoon ? '/cocoon-exit' : '/cocoon-enter', { method: 'POST' });
     loadStatus();
   });
   document.getElementById('btn-reset').addEventListener('click', async () => {
