@@ -441,6 +441,10 @@ const DEFAULT_SETTINGS = {
   frequent_arguer_kick_threshold: '5',
   frequent_arguer_window_hours: '24',
   frequent_arguer_fuck_chance: '40',
+  // "Похотливость" — controls how fast the char_lust trait rises per /boobs
+  // (see performBoobs). Default matches the old hardcoded +8 so behavior is
+  // unchanged until an admin tunes it.
+  lust_gain_per_boobs: '8',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -1524,6 +1528,19 @@ const TROLL_ACTION_KEYBOARD = {
 // require this file (see admin-lib.js's file-level comment on why), so this
 // is intentionally a standalone duplicate of that aggregation shape rather
 // than a shared function.
+// Fixed personality write-up derived from a real read of this troll's
+// all-time stats (see docs/superpowers/specs/2026-07-30-troll-stage2-perevoploschenie-design.md) —
+// a frozen character bio for "who he turned out to be" by this point in his
+// life, not something recomputed live from the numbers each time.
+const TROLL_CHARACTER_SUMMARY = [
+  '🧬 Характер:',
+  'Избалованный обжора — его перекармливают чаще, чем он ест сам.',
+  'Острый на язык: огрызается на всех и каждого больше, чем делает что-либо ещё.',
+  'Любит внимание — играют и дразнят его охотно, показов сиськи тоже хватает.',
+  'Нахватался фраз от чата — попугайничает много и разнообразно.',
+  'Спит крепко: будят его пораньше очень редко.',
+].join('\n');
+
 function buildAllTimeStatsCaption(state) {
   const since = state.born_at || 0;
   const rows = db.prepare(
@@ -1551,6 +1568,9 @@ function buildAllTimeStatsCaption(state) {
     `💩 Покакал: ${totalFor('poop')}`,
     `💦 Пописал: ${totalFor('pee')}`,
     `🍽️ Поел сам: ${totalFor('self_eat')}`,
+    `💋 Похоть: ${state.char_lust}/100`,
+    '',
+    TROLL_CHARACTER_SUMMARY,
   ].join('\n');
 }
 
@@ -1897,7 +1917,8 @@ function performBoobs(chatId, from) {
     return;
   }
   const category = BOOBS_CATEGORY_BY_STAGE[state.stage] || 'boobs_baby';
-  db.prepare('UPDATE troll_state SET char_lust = MIN(100, char_lust + 8) WHERE id = 1').run();
+  const lustGain = getSettingNumber('lust_gain_per_boobs');
+  db.prepare('UPDATE troll_state SET char_lust = MIN(100, char_lust + ?) WHERE id = 1').run(lustGain);
   logAction(from.id, from.username || from.first_name, 'boobs');
   sendCategoryReply(chatId, mamaCategoryOverride(state, from.id, category), 'Моя видеть еда!', actorName(from), from.id);
 }
