@@ -754,6 +754,23 @@ const TEASE_HARSH_YOUNG_PHRASES = [
   'Моя видеть больше таланта в камне под мостом, чем в твоя словах.',
   'Твоя тупость поражает даже моя.',
   'Свали, пока моя добрый.',
+  // Added for the more grown-up, hormonal-teen personality — sharper,
+  // more dismissive attitude on top of the original harsh-young set above.
+  'Твоя вообще в курсе, с кем разговаривать? Моя не для слабаков.',
+  'Ой, всё, началось нытьё. Твоя скучный до зевоты.',
+  'Моя было бы стыдно говорить такое на людях.',
+  'Твоя серьёзно думать, это смешно? Пффф.',
+  'Моя видеть таких как твоя пачками, ничего особенного.',
+  'Твоя достал уже, честно говоря.',
+  'Ага, конечно, беги дальше со своими глупостями.',
+  'Твоя явно не выспался, раз несёшь такую чушь.',
+  'Моя даже спорить с твоя не буду, бессмысленно.',
+  'Твоя такая мелочь, а туда же.',
+  'Серьёзно? Это всё, что твоя могла придумать?',
+  'Твоя раздражаешь моя одним своим видом.',
+  'Моя даже не удостоит твоя нормальным ответом.',
+  'Твоя вообще думаешь, прежде чем писать?',
+  'Ладно, твоя выиграл титул самого скучного в чате.',
 ];
 const TEASE_HARSH_ADULT_PHRASES = [
   'Ты действительно жалок. Даже оскорблять тебя скучно.',
@@ -963,6 +980,60 @@ const TARGETED_ACTION_FEMALE_PHRASES = [
   'завязать шнурки {user} узлом',
 ];
 
+// Stage-2 ("молодой") override of TARGETED_ACTION_FEMALE_PHRASES — picked up
+// automatically by pickPhraseForStage's stage-suffix lookup (see
+// resolveTargetedActionCategory, which returns the plain 'targeted_action_female'
+// unconditionally; the '_young' variant only kicks in downstream, in
+// pickPhraseForStage itself). Clumsy teenage flirting instead of innocent
+// pranks — the older, more hormonal personality the user asked for.
+const TARGETED_ACTION_FEMALE_YOUNG_PHRASES = [
+  'подмигнуть {user} и покраснеть от смущения',
+  'предложить {user} прогуляться под луной',
+  'подойти к {user} познакомиться, но забыть все слова',
+  'подарить {user} самый красивый камень с моста',
+  'встать в эффектную позу перед {user}',
+  'написать {user} любовную записку на мокром листике',
+  'спеть серенаду для {user} под мостом',
+  'угостить {user} самой большой рыбой с моста',
+  'пригласить {user} на свидание при лунном свете',
+  'сделать комплимент {user} и смутиться от своих слов',
+  'предложить {user} потрогать свои мускулы',
+  'засмотреться на {user} и врезаться в мост',
+  'украдкой сфотографировать {user} на память',
+  'пригласить {user} покормить голубей вместе',
+  'подойти к {user} вразвалочку, изображая крутого парня',
+];
+
+// Stage-2 override of the untargeted mischief_mild/mischief_medium pools
+// (see MISCHIEF_TIER_CATEGORIES + pickPhraseForStage in triggerMischief) —
+// same plain-Russian, third-person, asterisk-wrapped style as the base
+// pools, just with the hormonal-teen ambient behavior the user asked for
+// (no specific chat participant named — that's what TARGETED_ACTION_FEMALE_YOUNG_PHRASES is for).
+const MISCHIEF_MILD_YOUNG_PHRASES = [
+  'украдкой поправил причёску, заметив кого-то симпатичного',
+  'потрогал себя через штаны, задумавшись о своём',
+  'разглядывал себя в луже, накачивая мускулы',
+  'написал на мосту чьё-то имя в сердечке',
+  'вздохнул тяжело, вспоминая кого-то',
+  'почесал где-то ниже пояса и сделал вид, что ничего не было',
+  'настроил отражение в луже под правильным углом',
+  'опять переоделся три раза перед тем, как выйти из-под моста',
+  'обрызгался чужими духами, найденными у моста',
+  'практиковал в одиночестве, как будет знакомиться',
+];
+const MISCHIEF_MEDIUM_YOUNG_PHRASES = [
+  'подглядывал за девушками у речки, притворяясь, что ловит рыбу',
+  'полез трогать себя прямо во время шалости, не стесняясь никого',
+  'написал похабный стишок на заборе и подписался чужим именем',
+  'выпросил у прохожей номер телефона и получил по морде',
+  'спрятался в кустах, чтобы получше рассмотреть проходящих мимо',
+  'потратил час на укладку единственной пряди волос',
+  'громко присвистнул вслед незнакомке и тут же спрятался от стыда',
+  'полез обниматься без спроса и получил пощёчину',
+  'сделал самому себе комплимент вслух, никого не стесняясь',
+  'разложил перед мостом цветы для девушки, которая так и не пришла',
+];
+
 // /boobs turn-away for a known male caller (see performBoobs) — unknown
 // gender still goes through normally, only an explicit male match rejects.
 const BOOBS_MALE_REJECT_PHRASES = [
@@ -1011,6 +1082,9 @@ seedPhrasesIfMissing('tease_female', TEASE_FEMALE_PHRASES);
 seedPhrasesIfMissing('targeted_action_male', TARGETED_ACTION_MALE_PHRASES);
 seedPhrasesIfMissing('targeted_action_female', TARGETED_ACTION_FEMALE_PHRASES);
 seedPhrasesIfMissing('boobs_male_reject', BOOBS_MALE_REJECT_PHRASES);
+seedPhrasesIfMissing('targeted_action_female_young', TARGETED_ACTION_FEMALE_YOUNG_PHRASES);
+seedPhrasesIfMissing('mischief_mild_young', MISCHIEF_MILD_YOUNG_PHRASES);
+seedPhrasesIfMissing('mischief_medium_young', MISCHIEF_MEDIUM_YOUNG_PHRASES);
 
 console.log('Тролль-бот: схема готова.');
 
