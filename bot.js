@@ -2152,20 +2152,21 @@ function pickMischiefTarget() {
   return candidates[candidates.length - 1];
 }
 
-// High-lust autonomous action target: a known female participant who has
-// spoken recently AND loves the troll back (attitude >= 70, same tier as
-// pickTeaseCategory's 'tease_adoring' and "Тролль Фас" eligibility) — never
-// mama, same exemption as pickMischiefTarget. Returns null if nobody
-// currently qualifies; the caller just skips this tick and tries again next
-// time (see triggerLustAction).
+// High-lust autonomous action target: any known female relationship who
+// loves the troll back (attitude >= 70, same tier as pickTeaseCategory's
+// 'tease_adoring' and "Тролль Фас" eligibility) — never mama, same
+// exemption as pickMischiefTarget. Deliberately NOT limited to recentMessages
+// (unlike pickMischiefTarget) — a strong relationship doesn't expire just
+// because someone hasn't spoken in the last few messages. Returns null if
+// nobody currently qualifies; the caller just skips this tick and tries
+// again next time (see triggerLustAction).
 function pickLustTarget() {
-  const candidates = recentMessages.filter((entry) => {
-    if (isMama(entry.userId)) return false;
-    const rel = db.prepare('SELECT gender, attitude FROM troll_relationships WHERE user_id = ?').get(entry.userId);
-    return !!rel && rel.gender === 'female' && rel.attitude >= 70;
-  });
+  const candidates = db.prepare(
+    'SELECT user_id, username, first_name FROM troll_relationships WHERE gender = ? AND attitude >= 70'
+  ).all('female').filter((row) => !isMama(row.user_id));
   if (candidates.length === 0) return null;
-  return candidates[Math.floor(Math.random() * candidates.length)];
+  const row = candidates[Math.floor(Math.random() * candidates.length)];
+  return { userId: row.user_id, username: row.username, firstName: row.first_name };
 }
 
 // Fires once char_lust crosses lust_trigger_threshold (see backgroundTick) —

@@ -76,13 +76,15 @@ Once `char_lust` exceeds `lust_trigger_threshold` (default `80`), the troll
 autonomously acts on it in `backgroundTick` — `triggerLustAction`, gated by
 its own cooldown `lust_action_interval_minutes` (default `60`).
 
-- **Target:** `pickLustTarget()` — a known female participant who's spoken
-  recently (same `recentMessages` pool as `pickMischiefTarget`) AND has
-  attitude ≥ 70 (the same "loves the troll" tier already used for
-  `tease_adoring`/"Тролль Фас" eligibility — reused as-is, no new threshold
-  setting). Mama is exempt, same as every other autonomous target selector.
-  If nobody currently qualifies, the tick is silently skipped — no message,
-  no cooldown stamped, so the very next tick tries again rather than waiting
+- **Target:** `pickLustTarget()` — any known female relationship (queried
+  directly from `troll_relationships`, not limited to recent chat activity
+  like `pickMischiefTarget`'s `recentMessages` pool — a strong relationship
+  doesn't expire just because someone's been quiet lately) with attitude ≥
+  70 (the same "loves the troll" tier already used for `tease_adoring`/
+  "Тролль Фас" eligibility — reused as-is, no new threshold setting). Mama
+  is exempt, same as every other autonomous target selector. If nobody
+  currently qualifies, the tick is silently skipped — no message, no
+  cooldown stamped, so the very next tick tries again rather than waiting
   out a full interval for nothing.
 - **Action:** a new `lust_action` phrase category (`LUST_ACTION_PHRASES`,
   `{user}`-templated, same plain-Russian/asterisk-wrapped style as the
