@@ -311,6 +311,12 @@ try {
 try {
   db.exec('ALTER TABLE troll_state ADD COLUMN has_transformed INTEGER NOT NULL DEFAULT 0');
 } catch {}
+// Cooldown gate for the high-lust autonomous action (see triggerLustAction) —
+// only stamped when the action actually fires (a qualifying target was
+// found), so a lust-high-but-nobody-around tick doesn't block the next try.
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN last_lust_action_at INTEGER');
+} catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -445,6 +451,13 @@ const DEFAULT_SETTINGS = {
   // (see performBoobs). Default matches the old hardcoded +8 so behavior is
   // unchanged until an admin tunes it.
   lust_gain_per_boobs: '8',
+  // High-lust autonomous action (see triggerLustAction in backgroundTick):
+  // fires once char_lust exceeds this threshold, no more often than every
+  // lust_action_interval_minutes, and only against someone who both loves
+  // the troll (attitude >= 70, same tier as "Тролль Фас" eligibility) and
+  // is a known female participant.
+  lust_trigger_threshold: '80',
+  lust_action_interval_minutes: '60',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -1038,6 +1051,21 @@ const MISCHIEF_MEDIUM_YOUNG_PHRASES = [
   'разложил перед мостом цветы для девушки, которая так и не пришла',
 ];
 
+// High-lust autonomous action (see triggerLustAction) — plain Russian,
+// third-person, asterisk-wrapped like the mischief pools above. Only ever
+// fires against someone who loves the troll back (see pickLustTarget), so
+// the tone is embarrassed/smitten rather than predatory.
+const LUST_ACTION_PHRASES = [
+  'подглядеть за {user} из-за кустов и подрочить, покраснев от стыда',
+  'украдкой пробраться за {user} и передёрнуть от нахлынувших чувств',
+  'спрятаться за мостом, разглядывая {user}, и облегчить себя, никого не стесняясь',
+  'засмотреться на {user} и удовлетворить себя тут же под мостом',
+  'проследить за {user} до самого дома и передёрнуть от волнения',
+  'подсмотреть за {user} в бинокль и не сдержаться',
+  'притаиться в тени, глядя на {user}, и решить свои неотложные дела',
+  'покраснеть, глядя на {user}, и уединиться под мостом на минутку',
+];
+
 // /boobs turn-away for a known male caller (see performBoobs) — unknown
 // gender still goes through normally, only an explicit male match rejects.
 const BOOBS_MALE_REJECT_PHRASES = [
@@ -1089,6 +1117,7 @@ seedPhrasesIfMissing('boobs_male_reject', BOOBS_MALE_REJECT_PHRASES);
 seedPhrasesIfMissing('targeted_action_female_young', TARGETED_ACTION_FEMALE_YOUNG_PHRASES);
 seedPhrasesIfMissing('mischief_mild_young', MISCHIEF_MILD_YOUNG_PHRASES);
 seedPhrasesIfMissing('mischief_medium_young', MISCHIEF_MEDIUM_YOUNG_PHRASES);
+seedPhrasesIfMissing('lust_action', LUST_ACTION_PHRASES);
 
 console.log('Тролль-бот: схема готова.');
 
@@ -1568,6 +1597,7 @@ function buildAllTimeStatsCaption(state) {
     `💩 Покакал: ${totalFor('poop')}`,
     `💦 Пописал: ${totalFor('pee')}`,
     `🍽️ Поел сам: ${totalFor('self_eat')}`,
+    `😳 Не сдержался от похоти: ${totalFor('lust_action')}`,
     `💋 Похоть: ${state.char_lust}/100`,
     '',
     TROLL_CHARACTER_SUMMARY,
@@ -2122,6 +2152,41 @@ function pickMischiefTarget() {
   return candidates[candidates.length - 1];
 }
 
+// High-lust autonomous action target: a known female participant who has
+// spoken recently AND loves the troll back (attitude >= 70, same tier as
+// pickTeaseCategory's 'tease_adoring' and "Тролль Фас" eligibility) — never
+// mama, same exemption as pickMischiefTarget. Returns null if nobody
+// currently qualifies; the caller just skips this tick and tries again next
+// time (see triggerLustAction).
+function pickLustTarget() {
+  const candidates = recentMessages.filter((entry) => {
+    if (isMama(entry.userId)) return false;
+    const rel = db.prepare('SELECT gender, attitude FROM troll_relationships WHERE user_id = ?').get(entry.userId);
+    return !!rel && rel.gender === 'female' && rel.attitude >= 70;
+  });
+  if (candidates.length === 0) return null;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+// Fires once char_lust crosses lust_trigger_threshold (see backgroundTick) —
+// unlike mischief/pee/poop this doesn't roll a dice, it just happens once a
+// qualifying target is found. Resets char_lust to 0 and stamps
+// last_lust_action_at only when it actually fires, so a threshold-crossed-
+// but-nobody-around tick doesn't block the very next attempt.
+function triggerLustAction(chatId, stage, now) {
+  const target = pickLustTarget();
+  if (!target) return;
+  const name = getMentionName(target);
+  const template = pickPhraseForStage('lust_action', stage, 'подсмотреть за {user} и не сдержаться');
+  const sticker = Math.random() < 0.5 ? pickStickerForStage('lust_action', stage) : null;
+  if (sticker) bot.sendSticker(chatId, sticker.fileId).catch(() => {});
+  if (!sticker || !sticker.hasOwnText) {
+    bot.sendMessage(chatId, `*${template.replace(/\{user\}/g, name)}*`).catch(() => {});
+  }
+  db.prepare('UPDATE troll_state SET char_lust = 0, last_lust_action_at = ? WHERE id = 1').run(now);
+  logAction(target.userId, target.username || target.firstName, 'lust_action');
+}
+
 // Tiered category names [mild, medium, mean] — indexed the same way as getMischiefTier.
 const TARGETED_PHRASE_TIER_CATEGORIES = ['targeted_phrase_mild', 'targeted_phrase_medium', 'targeted_phrase_mean'];
 const TARGETED_ACTION_TIER_CATEGORIES = ['targeted_action_mild', 'targeted_action_medium', 'targeted_action_mean'];
@@ -2454,6 +2519,18 @@ function backgroundTick() {
     if (!state.last_pee_action_at || now - state.last_pee_action_at >= peeIntervalSeconds) {
       triggerPee(state.chat_id);
       db.prepare('UPDATE troll_state SET last_pee_action_at = ? WHERE id = 1').run(now);
+    }
+
+    // High-lust action: no fixed roll like mischief above — it only fires
+    // once char_lust crosses the threshold AND a qualifying target is found
+    // (see pickLustTarget/triggerLustAction), so the cooldown is stamped
+    // inside the trigger function itself, not here.
+    const lustIntervalSeconds = getSettingNumber('lust_action_interval_minutes') * 60;
+    if (
+      state.char_lust > getSettingNumber('lust_trigger_threshold') &&
+      (!state.last_lust_action_at || now - state.last_lust_action_at >= lustIntervalSeconds)
+    ) {
+      triggerLustAction(state.chat_id, state.stage, now);
     }
   }
 }

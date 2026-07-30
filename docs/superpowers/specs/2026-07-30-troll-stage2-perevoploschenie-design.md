@@ -70,6 +70,40 @@ Applied via a direct SQL update on the server, not a `DEFAULT_SETTINGS`
 change (this is tuning THIS troll's already-seeded settings, not changing
 what a brand-new install starts with).
 
+## New autonomous behavior: high-lust action
+
+Once `char_lust` exceeds `lust_trigger_threshold` (default `80`), the troll
+autonomously acts on it in `backgroundTick` — `triggerLustAction`, gated by
+its own cooldown `lust_action_interval_minutes` (default `60`).
+
+- **Target:** `pickLustTarget()` — a known female participant who's spoken
+  recently (same `recentMessages` pool as `pickMischiefTarget`) AND has
+  attitude ≥ 70 (the same "loves the troll" tier already used for
+  `tease_adoring`/"Тролль Фас" eligibility — reused as-is, no new threshold
+  setting). Mama is exempt, same as every other autonomous target selector.
+  If nobody currently qualifies, the tick is silently skipped — no message,
+  no cooldown stamped, so the very next tick tries again rather than waiting
+  out a full interval for nothing.
+- **Action:** a new `lust_action` phrase category (`LUST_ACTION_PHRASES`,
+  `{user}`-templated, same plain-Russian/asterisk-wrapped style as the
+  mischief pools) plus an optional sticker slot via the existing
+  `pickStickerForStage('lust_action', stage)` hook — admins can attach
+  stickers to this category the same way as any other, no new sticker-
+  management code needed.
+- **Resolution:** always succeeds once a target is found (no dodge/try
+  roll, unlike a landed kick) — `char_lust` resets to `0` and
+  `last_lust_action_at` is stamped, both in the same update.
+- Logged as `troll_actions.action = 'lust_action'`, and now also surfaced as
+  a line in `buildAllTimeStatsCaption` ("😳 Не сдержался от похоти: N").
+
+New settings: `lust_trigger_threshold` (`[0,100,5]`, default `80`) and
+`lust_action_interval_minutes` (`[10,240,10]`, default `60`), both added to
+`bot.js` `DEFAULT_SETTINGS`, `admin-lib.js` `DEFAULT_SETTINGS_KEYS`, and
+`public/app.js` labels/ranges, same as `lust_gain_per_boobs` above.
+
+New schema column: `troll_state.last_lust_action_at INTEGER` (nullable
+timestamp, same idiom as every other per-action cooldown column).
+
 ## Testing
 
 No automated test suite. Verify: `/boobs` a few times and confirm
@@ -77,3 +111,8 @@ No automated test suite. Verify: `/boobs` a few times and confirm
 `/troll_character`); toggle the cocoon and confirm the caption now ends with
 the lust line and the character-summary paragraph; confirm the three
 retuned settings show their new values via `/api/settings` or the panel.
+For the high-lust action: manually set `char_lust` above the threshold for
+a chat with at least one known female participant at attitude ≥ 70, wait
+for the next background tick, and confirm the action fires, `char_lust`
+resets to 0, and `lust_action` shows up in `troll_actions`/the stats
+caption.

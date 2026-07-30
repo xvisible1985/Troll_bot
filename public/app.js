@@ -69,6 +69,8 @@ const SETTING_LABELS = {
   frequent_arguer_window_hours: 'Частый спорщик: окно подсчёта, ч',
   frequent_arguer_fuck_chance: 'Частый спорщик: шанс 🖕 вместо огрызания, %',
   lust_gain_per_boobs: 'Похотливость (прирост похоти за 🍈)',
+  lust_trigger_threshold: 'Порог похоти для действия (>N)',
+  lust_action_interval_minutes: 'Интервал похотливого действия, мин',
 };
 const SETTING_RANGES = {
   naughtiness: [1, 10, 1],
@@ -109,6 +111,8 @@ const SETTING_RANGES = {
   frequent_arguer_window_hours: [1, 72, 1],
   frequent_arguer_fuck_chance: [0, 100, 5],
   lust_gain_per_boobs: [0, 20, 1],
+  lust_trigger_threshold: [0, 100, 5],
+  lust_action_interval_minutes: [10, 240, 10],
 };
 
 async function loadStatus() {
