@@ -1808,98 +1808,93 @@ function performPlay(chatId, from) {
 // sendMessage calls issued back-to-back race over the network and can
 // arrive at Telegram (and so appear in the chat) in either order — the
 // roll message must visibly land before whatever response follows it.
-async function performKick(chatId, from) {
+const FIGHT_WEAPONS = ['палкой', 'сковородкой', 'веткой', 'ботинком', 'подушкой', 'зонтиком', 'веслом', 'шваброй', 'рыбой', 'кулаком'];
+const FIGHT_BODY_PARTS = ['по голове', 'по спине', 'по ноге', 'по руке', 'по животу', 'по попе', 'по лбу', 'в бок'];
+const INJURY_TYPES = ['arm', 'leg', 'head'];
+const INJURY_REFUSAL_TEXT = {
+  arm: 'твоя рука ещё болит, не до драки!',
+  leg: 'твоя нога ещё болит, не до драки!',
+  head: 'твоя голова ещё болит, не до драки!',
+};
+
+// Replaces the old /kick — ONE exchange per press: the human swings first
+// (troll rolls to dodge), then the troll swings back (troll rolls to land
+// a hit). Not a 3-round loop — press "⚔️ Драка" again (subject to the
+// normal cooldown) to keep brawling one hit at a time. Both sides use the
+// same rollTrollTryResult 50/50 engine that kick-dodging already used, just
+// with different action text depending on who's "attempting" what. No
+// attitude change either way (see design spec) — this is mutual gameplay,
+// not an unwanted attack, so attitude_kick_delta/checkEnemyDeclaration
+// don't apply here at all.
+async function performFight(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
-  if (!checkCommandCooldown(from.id, 'kick')) return;
-  const now = Math.floor(Date.now() / 1000);
   noticeUser(from.id, from.username, from.first_name);
+
+  if (!tgBotDb) {
+    await bot.sendMessage(chatId, 'Драка временно недоступна.').catch(() => {});
+    return;
+  }
+
+  // Injury and 0-health checks come before the cooldown is spent — you
+  // shouldn't burn your fight cooldown on an attempt that was never going
+  // to start (see design spec's "no cooldown/health touched" requirement).
+  const injury = getUserInjury(from.id);
+  if (injury) {
+    await bot.sendMessage(chatId, `${actorName(from)}, ${INJURY_REFUSAL_TEXT[injury]}`).catch(() => {});
+    return;
+  }
+  const challengerHealth = getUserHealth(from.id);
+  if (challengerHealth.health === 0) {
+    await bot.sendMessage(chatId, `${actorName(from)}, твоя в отключке, какая драка!`).catch(() => {});
+    return;
+  }
+
+  if (!checkCommandCooldown(from.id, 'fight')) return;
 
   if (state.cocoon_started_at) {
     await bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
     return;
   }
-
-  // Regen sleep in progress: a kick now rolls the same dodge chance as an
-  // awake kick instead of always landing. A dodge leaves the nap running
-  // completely untouched — just a sleepy insult, no state change. A landed
-  // kick still wakes him early and banks whatever regen ticks already
-  // accrued (see handleRegenSleepTick in backgroundTick), but now on top of
-  // that applies the same mood/health/silence penalty as a normal landed
-  // kick — being asleep no longer makes getting kicked free.
   if (state.regen_sleep_started_at) {
-    const sleepDodgeRoll = rollTrollTryResult(`увернуться от пинка ${actorName(from)}`);
-    if (sleepDodgeRoll.success) {
-      await bot.sendMessage(chatId, '*всхрапывает* Твоя идти на хуй!! *и дальше спит*').catch(() => {});
-      return;
-    }
-    const ticksApplied = state.regen_sleep_ticks_applied;
-    const weightLost = getSettingNumber('regen_sleep_weight_loss_per_tick') * ticksApplied;
-    const healthGained = getSettingNumber('regen_sleep_health_per_tick') * ticksApplied;
-    const sleepSilencedUntil = now + 60 * 60;
-    db.prepare(
-      'UPDATE troll_state SET regen_sleep_started_at = NULL, regen_sleep_ticks_applied = 0, last_regen_sleep_at = ?, health = MAX(0, MIN(max_health, health + ?) - 5), mood = MAX(0, mood - 20), silenced_until = ? WHERE id = 1'
-    ).run(now, healthGained, sleepSilencedUntil);
-    logAction(from.id, from.username || from.first_name, 'kick');
-    const oldAttitudeSleep = adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
-    checkEnemyDeclaration(chatId, from, oldAttitudeSleep);
-    await bot.sendMessage(
-      chatId,
-      `Ай! Твоя разбудить моя пинком! Моя успеть похудеть на ${weightLost}кг и восстановить ${healthGained} здоровье, но твоя пинок совсем испортить моя настроение!`
-    ).catch(() => {});
+    await bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
     return;
   }
 
-  // Global hide lockout: troll successfully hid after 2 kicks within an
-  // hour (see below) — /kick does nothing for anyone until it expires.
-  if (state.kick_locked_until && state.kick_locked_until > now) {
-    await bot.sendMessage(chatId, 'Тролль спрятался и не даётся пнуть! Попробуй позже.').catch(() => {});
-    return;
+  let trollHealth = state.health;
+
+  // Human's swing at the troll.
+  const humanWeapon = pick(FIGHT_WEAPONS);
+  const humanTarget = pick(FIGHT_BODY_PARTS);
+  const humanSwing = rollTrollTryResult(`увернуться от удара ${actorName(from)} ${humanWeapon} ${humanTarget}`);
+  await bot.sendMessage(chatId, humanSwing.text).catch(() => {});
+  if (!humanSwing.success) {
+    const dmg = Math.floor(Math.random() * 10) + 1;
+    trollHealth = Math.max(0, trollHealth - dmg);
+    db.prepare('UPDATE troll_state SET health = ? WHERE id = 1').run(trollHealth);
+    await bot.sendMessage(chatId, `💥 Урон троллю: ${dmg} (осталось ${trollHealth}/${state.max_health})`).catch(() => {});
   }
 
-  // Per-user cooldown: this specific attacker dodged-and-got-blocked
-  // recently (see below) — Telegram can't hide an inline button for just
-  // one person in a shared message, so this is enforced functionally: the
-  // button/command still shows for them, it just no-ops with a message.
-  const rel = db.prepare('SELECT kick_blocked_until FROM troll_relationships WHERE user_id = ?').get(from.id);
-  if (rel && rel.kick_blocked_until && rel.kick_blocked_until > now) {
-    await bot.sendMessage(chatId, `${actorName(from)}, тролль прячется от тебя! Попробуй позже.`).catch(() => {});
-    return;
-  }
+  logAction(from.id, from.username || from.first_name, 'fight');
 
-  const dodgeRoll = rollTrollTryResult(`увернуться от пинка ${actorName(from)}`);
-  await bot.sendMessage(chatId, dodgeRoll.text).catch(() => {});
+  // Troll doesn't get a counter-swing if the human's hit just knocked it
+  // to 0 — nothing left to swing back with.
+  if (trollHealth === 0) return;
 
-  if (dodgeRoll.success) {
-    // Dodged: no mood/health hit, but the attempt itself still sours the
-    // relationship, earns a comeback, and costs the attacker their kick
-    // button for an hour.
-    const oldAttitude1 = adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
-    checkEnemyDeclaration(chatId, from, oldAttitude1);
-    logAction(from.id, from.username || from.first_name, 'snapped_at');
-    if (!maybeSendFuckReaction(chatId, from.id)) {
-      await sendCategoryReplyForStage(chatId, resolveTeaseCategory(from.id), state.stage, 'Твоя не попасть в моя!', actorName(from), from.id);
-    }
-    db.prepare('UPDATE troll_relationships SET kick_blocked_until = ? WHERE user_id = ?').run(now + 3600, from.id);
-    return;
-  }
-
-  const silencedUntil = now + 60 * 60;
-  db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 20), health = MAX(0, health - 5), silenced_until = ? WHERE id = 1').run(silencedUntil);
-  logAction(from.id, from.username || from.first_name, 'kick');
-  const oldAttitude2 = adjustAttitude(from.id, getSettingNumber('attitude_kick_delta'));
-  checkEnemyDeclaration(chatId, from, oldAttitude2);
-  await sendCategoryReplyForStage(chatId, 'kick', state.stage, 'Твоя злой! Моя обижаться!', actorName(from), from.id);
-
-  // 2 landed kicks within an hour: the troll tries to hide from everyone.
-  const recentKicks = db.prepare(
-    "SELECT COUNT(*) AS n FROM troll_actions WHERE action = 'kick' AND created_at >= ?"
-  ).get(now - 3600).n;
-  if (recentKicks >= 2) {
-    const hideRoll = rollTrollTryResult('спрятаться от всех пинков');
-    await bot.sendMessage(chatId, hideRoll.text).catch(() => {});
-    if (hideRoll.success) {
-      db.prepare('UPDATE troll_state SET kick_locked_until = ? WHERE id = 1').run(now + 3600);
+  // Troll's counter-swing at the human.
+  const trollWeapon = pick(FIGHT_WEAPONS);
+  const trollTarget = pick(FIGHT_BODY_PARTS);
+  const trollSwing = rollTrollTryResult(`ударить ${actorName(from)} ${trollWeapon} ${trollTarget}`);
+  await bot.sendMessage(chatId, trollSwing.text).catch(() => {});
+  if (trollSwing.success) {
+    const dmg = Math.floor(Math.random() * 20) + 1;
+    const humanHealth = damageHuman(from.id, chatId, from.username || from.first_name, dmg);
+    const humanMaxHealth = challengerHealth.max_health;
+    await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (осталось ${humanHealth}/${humanMaxHealth})`).catch(() => {});
+    if (trollSwing.roll >= 90) {
+      const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
+      applyInjury(from.id, injuryType);
+      await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова'} (на сутки).`).catch(() => {});
     }
   }
 }
