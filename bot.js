@@ -73,6 +73,60 @@ function markSmelly(userId, durationSeconds, reason) {
   ).run(userId, expiresAt, reason);
 }
 
+// Lazily-expiring injury lookup for the "Драка" game — mirrors markSmelly's
+// cross-process style. Returns 'arm' | 'leg' | 'head' | null.
+function getUserInjury(userId) {
+  if (!tgBotDb) return null;
+  const row = tgBotDb.prepare('SELECT injury_type, injured_until FROM injuries WHERE user_id = ?').get(userId);
+  if (!row) return null;
+  if (row.injured_until * 1000 < Date.now()) {
+    tgBotDb.prepare('DELETE FROM injuries WHERE user_id = ?').run(userId);
+    return null;
+  }
+  return row.injury_type;
+}
+
+// Called only after a troll hit lands with roll >= 90 (see performFight) —
+// always overwrites any existing injury with a fresh one and a fresh 24h
+// timer, no stacking multiple injuries at once.
+function applyInjury(userId, injuryType) {
+  if (!tgBotDb) return;
+  const injuredUntil = Math.floor(Date.now() / 1000) + 24 * 3600;
+  tgBotDb.prepare(
+    'INSERT INTO injuries (user_id, injury_type, injured_until) VALUES (?, ?, ?) ' +
+    'ON CONFLICT(user_id) DO UPDATE SET injury_type = excluded.injury_type, injured_until = excluded.injured_until'
+  ).run(userId, injuryType, injuredUntil);
+}
+
+// Reads (and lazily creates, at the 100/100 default) a challenger's health
+// row. Returns null only if tgBotDb itself is unavailable.
+function getUserHealth(userId) {
+  if (!tgBotDb) return null;
+  const row = tgBotDb.prepare('SELECT health, max_health FROM user_health WHERE user_id = ?').get(userId);
+  if (row) return row;
+  tgBotDb.prepare('INSERT INTO user_health (user_id, health, max_health) VALUES (?, 100, 100)').run(userId);
+  return { health: 100, max_health: 100 };
+}
+
+// Applies fight damage, floors at 0, and — if it reaches exactly 0 — mutes
+// the human for 30 minutes via tg-bot's own mutes table. troll-bot can't
+// call tg-bot's muteUser() across processes, so this duplicates its exact
+// INSERT shape (same precedent as markSmelly writing troll_smell directly).
+// Returns the human's health after damage, or null if tgBotDb is down.
+function damageHuman(userId, chatId, username, damage) {
+  if (!tgBotDb) return null;
+  getUserHealth(userId);
+  tgBotDb.prepare('UPDATE user_health SET health = MAX(0, health - ?) WHERE user_id = ?').run(damage, userId);
+  const row = tgBotDb.prepare('SELECT health FROM user_health WHERE user_id = ?').get(userId);
+  if (row.health === 0) {
+    const expiresAt = Math.floor(Date.now() / 1000) + 30 * 60;
+    tgBotDb.prepare(
+      'INSERT OR REPLACE INTO mutes (user_id, chat_id, username, muted_by, muted_by_name, expires_at) VALUES (?, ?, ?, 0, ?, ?)'
+    ).run(userId, chatId, username, 'драка', expiresAt);
+  }
+  return row.health;
+}
+
 let agent;
 if (proxy) {
   // keepAlive is essential: the low-powered proxy server drops ~half of fresh
