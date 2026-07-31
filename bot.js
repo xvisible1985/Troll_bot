@@ -1491,7 +1491,12 @@ function rollTrollTryResult(action) {
   const roll = Math.floor(Math.random() * 101);
   const success = roll >= 50;
   const outcome = success ? '✅ удачно' : '❌ неудачно';
-  return { success, text: `Тролль — ${action} ${outcome}: ${roll}/100` };
+  // roll is exposed (not just success/text) so callers can react to how
+  // strong a hit was — currently only "Драка"'s critical-hit check (roll
+  // >= 90) reads it; every existing caller already destructures only
+  // {success, text} or calls rollTrollTry (text-only), so adding this key
+  // doesn't change anything for them.
+  return { success, text: `Тролль — ${action} ${outcome}: ${roll}/100`, roll };
 }
 
 function rollTrollTry(action) {
