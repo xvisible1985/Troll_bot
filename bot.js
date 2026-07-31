@@ -163,6 +163,8 @@ const PUBLIC_COMMANDS = [
   { command: 'play', description: 'Поиграть с тролем' },
   { command: 'feed', description: 'Покормить тролля' },
   { command: 'fight', description: 'Подраться с тролем' },
+  { command: 'kick', description: 'Ударить другого участника чата (@юзернейм или ответом на его сообщение)' },
+  { command: 'me', description: 'Твоё здоровье' },
   { command: 'tease', description: 'Подразнить тролля' },
   { command: 'boobs', description: 'Показать тролю сиську' },
   { command: 'teach', description: 'Научить тролля фразе' },
@@ -1578,6 +1580,16 @@ function rollTrollTry(action) {
   return rollTrollTryResult(action).text;
 }
 
+// Same 50/50 engine as rollTrollTryResult, but for the human-vs-human /kick
+// PvP move — the actor is a chat member, not the troll, so the label can't
+// be hardcoded to "Тролль".
+function rollHumanTryResult(actorLabel, action) {
+  const roll = Math.floor(Math.random() * 101);
+  const success = roll >= 50;
+  const outcome = success ? '✅ удачно' : '❌ неудачно';
+  return { success, text: `${actorLabel} — ${action} ${outcome}: ${roll}/100`, roll };
+}
+
 // --- Public commands: summon and status ---
 bot.onText(/\/troll_here\b/, async (msg) => {
   if (!await isTelegramAdmin(msg)) return;
@@ -1906,6 +1918,55 @@ async function performFight(chatId, from) {
   }
 }
 
+// Player-vs-player /kick — one-directional (see design note above
+// rollHumanTryResult): the attacker swings once, the target never swings
+// back. Reuses the exact same injury/0-health/crit-injury rules as
+// performFight so a player who's been hurt or knocked out by the TROLL is
+// equally unable to start (or be safely ignored while starting) a PvP hit,
+// just via its own 'pvp_kick' cooldown key so it doesn't share a cooldown
+// with fighting the troll.
+async function performPvpKick(chatId, from, target) {
+  if (!tgBotDb) {
+    await bot.sendMessage(chatId, 'Эта команда временно недоступна.').catch(() => {});
+    return;
+  }
+  if (target.userId === from.id) {
+    await bot.sendMessage(chatId, `${actorName(from)}, нельзя ударить самого себя!`).catch(() => {});
+    return;
+  }
+
+  const injury = getUserInjury(from.id);
+  if (injury) {
+    await bot.sendMessage(chatId, `${actorName(from)}, ${INJURY_REFUSAL_TEXT[injury]}`).catch(() => {});
+    return;
+  }
+  const attackerHealth = getUserHealth(from.id);
+  if (attackerHealth.health === 0) {
+    await bot.sendMessage(chatId, `${actorName(from)}, твоя в отключке, какая драка!`).catch(() => {});
+    return;
+  }
+
+  if (!checkCommandCooldown(from.id, 'pvp_kick')) return;
+
+  const targetLabel = target.username ? `@${target.username}` : target.firstName;
+  const weapon = pick(FIGHT_WEAPONS);
+  const bodyPart = pick(FIGHT_BODY_PARTS);
+  const swing = rollHumanTryResult(actorName(from), `ударить ${targetLabel} ${weapon} ${bodyPart}`);
+  await bot.sendMessage(chatId, swing.text).catch(() => {});
+  logAction(from.id, from.username || from.first_name, 'pvp_kick');
+  if (!swing.success) return;
+
+  const targetHealthBefore = getUserHealth(target.userId);
+  const dmg = Math.floor(Math.random() * 20) + 1;
+  const targetHealthAfter = damageHuman(target.userId, chatId, target.username || target.firstName, dmg);
+  await bot.sendMessage(chatId, `💥 Урон ${targetLabel}: ${dmg} (${targetHealthBefore.health} -> ${targetHealthAfter})`).catch(() => {});
+  if (swing.roll >= 90) {
+    const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
+    applyInjury(target.userId, injuryType);
+    await bot.sendMessage(chatId, `🤕 Критический удар! ${targetLabel} получить травму: ${injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова'} (на сутки).`).catch(() => {});
+  }
+}
+
 // Shared by performFeed's normal/overeating branches and the autonomous
 // self-eat tick (triggerAutoEat) — same mood/satiety/weight effects
 // regardless of whether the troll was fed or found food on its own.
@@ -2044,6 +2105,54 @@ bot.onText(/\/fight\b/, (msg) => {
 
 bot.onText(/\/feed\b/, (msg) => {
   performFeed(msg.chat.id, msg.from);
+});
+
+// Target resolution mirrors "Тролль Фас": reply-to-message first (no typing
+// needed), else an @handle looked up against troll_relationships, else a
+// best-effort bot.getChat for someone the troll's never seen.
+bot.onText(/\/kick(?!\w)(?:@\w+)?(?:\s+@?(\S+))?/, async (msg, match) => {
+  const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
+  if (!state || (msg.chat.id !== state.chat_id && msg.chat.id !== ADMIN_CHAT_ID)) return;
+
+  let target = null;
+  if (msg.reply_to_message && msg.reply_to_message.from) {
+    target = {
+      userId: msg.reply_to_message.from.id,
+      username: msg.reply_to_message.from.username,
+      firstName: msg.reply_to_message.from.first_name,
+    };
+  } else if (match[1]) {
+    const handle = match[1].replace(/^@/, '');
+    const row = db.prepare(
+      'SELECT user_id, username, first_name FROM troll_relationships WHERE LOWER(username) = LOWER(?)'
+    ).get(handle);
+    if (row) {
+      target = { userId: row.user_id, username: row.username, firstName: row.first_name };
+    } else {
+      try {
+        const chat = await bot.getChat('@' + handle);
+        target = { userId: chat.id, username: chat.username, firstName: chat.first_name };
+      } catch {}
+    }
+  }
+
+  if (!target) {
+    await bot.sendMessage(msg.chat.id, 'Укажи @юзернейм или ответь на сообщение того, кого хочешь ударить.').catch(() => {});
+    return;
+  }
+
+  await performPvpKick(msg.chat.id, msg.from, target);
+});
+
+bot.onText(/\/me\b/, (msg) => {
+  const state = db.prepare('SELECT chat_id FROM troll_state WHERE id = 1').get();
+  if (!state || (msg.chat.id !== state.chat_id && msg.chat.id !== ADMIN_CHAT_ID)) return;
+  const health = getUserHealth(msg.from.id);
+  if (!health) {
+    bot.sendMessage(msg.chat.id, 'Статистика временно недоступна.').catch(() => {});
+    return;
+  }
+  bot.sendMessage(msg.chat.id, `❤️ Твоё здоровье: ${health.health}/${health.max_health}`).catch(() => {});
 });
 
 bot.onText(/\/tease\b/, (msg) => {
@@ -2921,6 +3030,8 @@ const TROLL_HELP_PUBLIC = [
   '/play — поиграть с тролем (+настроение, +игривость, -злость)',
   '/feed — покормить тролля (+здоровье, +сытость, +настроение; от 90 до 99 сытости — переедает и это растит аппетит; при 100 — кинет еду обратно)',
   '/fight — подраться с тролем (⚔️ один обмен ударами за раз: сначала бьёшь ты — тролль может увернуться или потерять здоровье; затем отвечает тролль — если попадёт, теряешь здоровье, а критический удар может дать травму на сутки (рука/нога/голова — блокирует драки, пока не пройдёт); при 0 здоровья тебя вырубает и мутит на 30 минут)',
+  '/kick @юзернейм (или ответом на его сообщение) — ударить другого участника чата, без ответного удара; те же правила урона/травм/нокаута, что и в /fight',
+  '/me — твоё текущее здоровье',
   '/tease — подразнить тролля (-настроение, +злость)',
   '/boobs — показать тролю сиську (+похоть, реакция зависит от стадии роста)',
   '/teach <фраза> — научить тролля фразе; он потом будет иногда повторять её случайным людям (можно и просто ответить на любое сообщение тролля)',
