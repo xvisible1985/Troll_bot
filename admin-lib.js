@@ -20,6 +20,8 @@ const DEFAULT_SETTINGS_KEYS = [
   'frequent_arguer_kick_threshold', 'frequent_arguer_window_hours', 'frequent_arguer_fuck_chance',
   'lust_gain_per_boobs', 'lust_trigger_threshold', 'lust_action_interval_minutes',
   'fight_daily_limit',
+  'mood_drink_good_delta', 'attitude_drink_good_delta', 'mood_drink_bad_delta',
+  'sobriety_loss_per_drink', 'sobriety_drunk_threshold', 'drunk_duration_minutes',
 ];
 
 function getSetting(key) {

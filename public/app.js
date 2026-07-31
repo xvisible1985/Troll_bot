@@ -72,6 +72,12 @@ const SETTING_LABELS = {
   lust_trigger_threshold: 'Порог похоти для действия (>N)',
   lust_action_interval_minutes: 'Интервал похотливого действия, мин',
   fight_daily_limit: 'Макс. ударов по тролю в день на человека',
+  mood_drink_good_delta: 'Бухалово: +настроение при удачной пьянке',
+  attitude_drink_good_delta: 'Бухалово: +отношение при удачной пьянке',
+  mood_drink_bad_delta: 'Бухалово: -настроение при ссоре',
+  sobriety_loss_per_drink: 'Бухалово: потеря трезвости за сессию',
+  sobriety_drunk_threshold: 'Бухалово: порог трезвости для запоя',
+  drunk_duration_minutes: 'Бухалово: длительность запоя, мин',
 };
 const SETTING_RANGES = {
   naughtiness: [1, 10, 1],
@@ -115,6 +121,12 @@ const SETTING_RANGES = {
   lust_trigger_threshold: [0, 100, 5],
   lust_action_interval_minutes: [10, 240, 10],
   fight_daily_limit: [1, 50, 1],
+  mood_drink_good_delta: [0, 40, 5],
+  attitude_drink_good_delta: [0, 30, 5],
+  mood_drink_bad_delta: [0, 40, 5],
+  sobriety_loss_per_drink: [5, 100, 5],
+  sobriety_drunk_threshold: [0, 100, 5],
+  drunk_duration_minutes: [10, 240, 10],
 };
 
 async function loadStatus() {

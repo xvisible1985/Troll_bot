@@ -165,6 +165,7 @@ const PUBLIC_COMMANDS = [
   { command: 'fight', description: 'Подраться с тролем' },
   { command: 'tease', description: 'Подразнить тролля' },
   { command: 'boobs', description: 'Показать тролю сиську' },
+  { command: 'drink', description: 'Бухать с тролем' },
   { command: 'teach', description: 'Научить тролля фразе' },
   { command: 'troll_help', description: 'Список всех команд' },
 ];
@@ -316,6 +317,17 @@ for (const column of ['char_appetite', 'char_playfulness', 'char_anger', 'char_l
     db.exec(`ALTER TABLE troll_state ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
   } catch {}
 }
+// "Трезвость" (sobriety) — the inverse of the other traits above: starts
+// FULL and drains per "Бухать" session (see performDrink) instead of
+// accumulating. Once it drops to/below sobriety_drunk_threshold, the troll
+// actually goes drunk (drunk_until) and sobriety resets back to 100 — same
+// "fires once, then resets" idiom as char_lust/triggerLustAction.
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN char_sobriety INTEGER NOT NULL DEFAULT 100');
+} catch {}
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN drunk_until INTEGER');
+} catch {}
 // Global kick lockout — set when the troll successfully hides after being
 // kicked twice within an hour, back when /kick existed. Left in the schema
 // for history; performFight (which replaced performKick) never reads or
@@ -535,6 +547,15 @@ const DEFAULT_SETTINGS = {
   // rolling 24h (see getFightAttemptsToday) — same window idiom as
   // frequent_arguer_window_hours above, just a separate counter.
   fight_daily_limit: '5',
+  // "Бухать с тролем" (see performDrink) — outcome deltas and the sobriety/
+  // drunk-debuff knobs. The 60/30/10 outcome split and the beating's 3x
+  // 1-20 damage are fixed, same precedent as Драка's weapon/damage pools.
+  mood_drink_good_delta: '15',
+  attitude_drink_good_delta: '10',
+  mood_drink_bad_delta: '15',
+  sobriety_loss_per_drink: '25',
+  sobriety_drunk_threshold: '30',
+  drunk_duration_minutes: '60',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -1288,6 +1309,14 @@ function isSilenced(state) {
   return !!state.silenced_until && state.silenced_until * 1000 > Date.now();
 }
 
+// "Пьяный" debuff from "Бухать с тролем" (see performDrink) — forces the
+// harshest available tease/mischief tier regardless of attitude/mood/
+// naughtiness while active (see pickTeaseCategory/resolveTeaseCategory/
+// getMischiefTier below).
+function isDrunk(state) {
+  return !!state.drunk_until && state.drunk_until * 1000 > Date.now();
+}
+
 function logAction(userId, username, action) {
   db.prepare('INSERT INTO troll_actions (user_id, username, action) VALUES (?, ?, ?)').run(userId, username, action);
 }
@@ -1415,7 +1444,12 @@ function appendRelationshipEmoji(text, userId) {
 // comeback, and the addressed-by-name comeback: harsh (<= escalation
 // threshold), regular tease (threshold..0), neutral (0..70), adoring
 // (70-100) — even a /tease from someone the troll adores lands soft.
+// While drunk (see isDrunk), this is always overridden to the harshest
+// tier for EVERYONE — deliberately no mama exemption here, per the "злой
+// на всех" (angry at everyone) design of the debuff.
 function pickTeaseCategory(userId) {
+  const drunkState = db.prepare('SELECT drunk_until FROM troll_state WHERE id = 1').get();
+  if (drunkState && isDrunk(drunkState)) return 'tease_harsh';
   const row = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(userId);
   const attitude = row ? row.attitude : 0;
   if (attitude >= 70) return 'tease_adoring';
@@ -1429,8 +1463,12 @@ function pickTeaseCategory(userId) {
 // is known (see detectAndStoreGender) — falls back to the normal
 // harsh/neutral/adoring tiers otherwise. Only for actual phrase-selection
 // call sites — the plain attitude check gating "Тролль Фас" keeps calling
-// pickTeaseCategory directly, unaffected by gender.
+// pickTeaseCategory directly, unaffected by gender. Drunk is checked here
+// too (not just inside pickTeaseCategory) since it must override gender's
+// otherwise-higher priority as well.
 function resolveTeaseCategory(userId) {
+  const drunkState = db.prepare('SELECT drunk_until FROM troll_state WHERE id = 1').get();
+  if (drunkState && isDrunk(drunkState)) return 'tease_harsh';
   const row = db.prepare('SELECT gender FROM troll_relationships WHERE user_id = ?').get(userId);
   return row && row.gender ? `tease_${row.gender}` : pickTeaseCategory(userId);
 }
@@ -1624,6 +1662,10 @@ function getActivityLine(state) {
   if (state.is_asleep) {
     return 'спит под мостом, тихо похрапывает';
   }
+  if (isDrunk(state)) {
+    const minutesLeft = Math.max(1, Math.ceil((state.drunk_until * 1000 - Date.now()) / 60000));
+    return `пьяный в стельку, злой на всех (ещё ~${minutesLeft} мин)`;
+  }
   return pickPhraseForStage('activity_awake', state.stage, 'бродит под мостом');
 }
 
@@ -1638,6 +1680,7 @@ const TROLL_ACTION_KEYBOARD = {
       [
         { text: '😈 Дразнить', callback_data: 'troll_tease' },
         { text: '🍈 Сиська', callback_data: 'troll_boobs' },
+        { text: '🍻 Бухать', callback_data: 'troll_drink' },
       ],
     ],
   },
@@ -1694,6 +1737,8 @@ function buildAllTimeStatsCaption(state) {
     `🍽️ Поел сам: ${totalFor('self_eat')}`,
     `😳 Не сдержался от похоти: ${totalFor('lust_action')}`,
     `💋 Похоть: ${state.char_lust}/100`,
+    `🍻 Бухал: ${totalFor('drink')}`,
+    `🍺 Трезвость: ${state.char_sobriety}/100`,
     '',
     TROLL_CHARACTER_SUMMARY,
   ].join('\n');
@@ -1757,6 +1802,7 @@ bot.onText(/\/troll_character\b/, (msg) => {
     `😡 Злость: ${state.char_anger}/100`,
     `💋 Похоть: ${state.char_lust}/100`,
     `😈 Вредность: ${state.char_naughtiness}/100`,
+    `🍺 Трезвость: ${state.char_sobriety}/100`,
   ];
   bot.sendMessage(msg.chat.id, lines.join('\n'));
 });
@@ -2056,6 +2102,79 @@ function performBoobs(chatId, from) {
   sendCategoryReply(chatId, mamaCategoryOverride(state, from.id, category), 'Моя видеть еда!', actorName(from), from.id);
 }
 
+// "Бухать с тролем" — 60% good session (mood+attitude up), 30% argument
+// (mood down), 10% the troll beats you up (3 guaranteed hits, same
+// weapon/body-part pools and crit-injury rule as Драка's counter-swing,
+// just with no dodge roll — you're too drunk to avoid it). Every session
+// also drains char_sobriety; crossing sobriety_drunk_threshold (and not
+// already drunk) starts the 1h "пьяный" debuff and sobers back up to 100.
+async function performDrink(chatId, from) {
+  const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
+  const isAdminTestChat = chatId === ADMIN_CHAT_ID;
+  if (!state || (chatId !== state.chat_id && !isAdminTestChat)) return;
+  if (!tgBotDb) {
+    await bot.sendMessage(chatId, 'Бухать сейчас не с кем.').catch(() => {});
+    return;
+  }
+  const challengerHealth = getUserHealth(from.id);
+  if (challengerHealth.health === 0) {
+    await bot.sendMessage(chatId, `${actorName(from)}, твоя в отключке, какая выпивка!`).catch(() => {});
+    return;
+  }
+  if (!checkCommandCooldown(from.id, 'drink')) return;
+  if (state.cocoon_started_at && !isAdminTestChat) {
+    await bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
+    return;
+  }
+  if (state.regen_sleep_started_at && !isAdminTestChat) {
+    await bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
+    return;
+  }
+
+  noticeUser(from.id, from.username, from.first_name);
+  logAction(from.id, from.username || from.first_name, 'drink');
+
+  const roll = Math.random() * 100;
+  if (roll < 60) {
+    db.prepare('UPDATE troll_state SET mood = MIN(100, mood + ?) WHERE id = 1').run(getSettingNumber('mood_drink_good_delta'));
+    adjustAttitude(from.id, getSettingNumber('attitude_drink_good_delta'));
+    await bot.sendMessage(chatId, `🍻 ${actorName(from)} с троллем хорошо посидели — настроение и отношение выросли!`).catch(() => {});
+  } else if (roll < 90) {
+    db.prepare('UPDATE troll_state SET mood = MAX(0, mood - ?) WHERE id = 1').run(getSettingNumber('mood_drink_bad_delta'));
+    await bot.sendMessage(chatId, `🍻 ${actorName(from)} поссорился с троллем по пьяни — настроение упало.`).catch(() => {});
+  } else {
+    await bot.sendMessage(chatId, `🍻 ${actorName(from)} перебрал — тролль дал пиздюлей!`).catch(() => {});
+    for (let i = 0; i < 3; i++) {
+      const weapon = pick(FIGHT_WEAPONS);
+      const bodyPart = pick(FIGHT_BODY_PARTS);
+      const critRoll = Math.floor(Math.random() * 101);
+      await bot.sendMessage(chatId, `Тролль — ударить ${actorName(from)} ${weapon} ${bodyPart} ✅ удачно: ${critRoll}/100`).catch(() => {});
+      const dmg = Math.floor(Math.random() * 20) + 1;
+      const before = getUserHealth(from.id);
+      const after = damageHuman(from.id, chatId, from.username || from.first_name, dmg);
+      await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (${before.health} -> ${after})`).catch(() => {});
+      if (critRoll >= 90) {
+        const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
+        applyInjury(from.id, injuryType);
+        const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
+        await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryName} (на сутки).`).catch(() => {});
+      }
+      if (after === 0) break;
+    }
+  }
+
+  const sobrietyLoss = getSettingNumber('sobriety_loss_per_drink');
+  const newSobriety = db.prepare(
+    'UPDATE troll_state SET char_sobriety = MAX(0, char_sobriety - ?) WHERE id = 1 RETURNING char_sobriety'
+  ).get(sobrietyLoss).char_sobriety;
+  if (!isDrunk(state) && newSobriety <= getSettingNumber('sobriety_drunk_threshold')) {
+    const durationMinutes = getSettingNumber('drunk_duration_minutes');
+    const drunkUntil = Math.floor(Date.now() / 1000) + durationMinutes * 60;
+    db.prepare('UPDATE troll_state SET drunk_until = ?, char_sobriety = 100 WHERE id = 1').run(drunkUntil);
+    await bot.sendMessage(chatId, `🥴 Тролль совсем набрался! Теперь он злой на всех, пока не протрезвеет (~${durationMinutes} мин).`).catch(() => {});
+  }
+}
+
 bot.onText(/\/play\b/, (msg) => {
   performPlay(msg.chat.id, msg.from);
 });
@@ -2074,6 +2193,10 @@ bot.onText(/\/tease\b/, (msg) => {
 
 bot.onText(/\/boobs\b/, (msg) => {
   performBoobs(msg.chat.id, msg.from);
+});
+
+bot.onText(/\/drink\b/, (msg) => {
+  performDrink(msg.chat.id, msg.from);
 });
 
 // Explicit alternative to the passive "reply to the troll" teach path (see
@@ -2170,6 +2293,7 @@ bot.on('callback_query', (query) => {
   else if (query.data === 'troll_fight') performFight(chatId, query.from);
   else if (query.data === 'troll_tease') performTease(chatId, query.from);
   else if (query.data === 'troll_boobs') performBoobs(chatId, query.from);
+  else if (query.data === 'troll_drink') performDrink(chatId, query.from);
   else return;
   bot.answerCallbackQuery(query.id).catch(() => {});
 });
@@ -2181,12 +2305,16 @@ bot.on('callback_query', (query) => {
 const STAGE_MAX_MISCHIEF_TIER = { 1: 0, 2: 1, 3: 2, 4: 2 };
 const MISCHIEF_TIER_CATEGORIES = ['mischief_mild', 'mischief_medium', 'mischief_mean'];
 
-function getMischiefTier(mood, naughtiness, stage) {
+function getMischiefTier(mood, naughtiness, stage, drunk) {
+  const maxTier = STAGE_MAX_MISCHIEF_TIER[stage] ?? 2;
+  // Drunk forces the harshest tier the stage still allows — "злой на всех"
+  // overrides mood/naughtiness, but not the age-appropriateness cap (a baby
+  // -stage troll doesn't jump to full "mean" content just because it drank).
+  if (drunk) return maxTier;
   const score = naughtiness - Math.floor(mood / 20);
   let tier = 0;
   if (score >= 7) tier = 2;
   else if (score >= 4) tier = 1;
-  const maxTier = STAGE_MAX_MISCHIEF_TIER[stage] ?? 2;
   return Math.min(tier, maxTier);
 }
 
@@ -2317,7 +2445,7 @@ function getFasTargetInfo(state) {
 function triggerMischief(chatId) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   const stage = state.stage;
-  const tier = getMischiefTier(state.mood, getSettingNumber('naughtiness'), stage);
+  const tier = getMischiefTier(state.mood, getSettingNumber('naughtiness'), stage, isDrunk(state));
   // The admin's naughtiness slider still drives how mischievous the troll
   // acts (unchanged); this just lets the character trait of the same name
   // reflect how much mischief it's actually gotten up to, growing more per
@@ -2945,6 +3073,7 @@ const TROLL_HELP_PUBLIC = [
   '/fight — подраться с тролем (⚔️ один обмен ударами за раз: сначала бьёшь ты — тролль может увернуться или потерять здоровье; затем отвечает тролль — если попадёт, теряешь здоровье, а критический удар может дать травму на сутки (рука/нога/голова — блокирует драки, пока не пройдёт); при 0 здоровья тебя вырубает и мутит на 30 минут; лимит попыток в день на человека настраивается админом)',
   '/tease — подразнить тролля (-настроение, +злость)',
   '/boobs — показать тролю сиську (+похоть, реакция зависит от стадии роста)',
+  '/drink — бухать с тролем (🍻 60% — хорошо посидели, +настроение +отношение; 30% — поссорились, -настроение; 10% — тролль дал пиздюлей, 3 удара подряд); частое бухалово роняет трезвость тролля и рано или поздно вгоняет его в запой на час — весь этот час он максимально злой на всех',
   '/teach <фраза> — научить тролля фразе; он потом будет иногда повторять её случайным людям (можно и просто ответить на любое сообщение тролля)',
 ].join('\n');
 
