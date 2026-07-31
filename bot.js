@@ -40,6 +40,26 @@ try {
   try {
     tgBotDb.exec("ALTER TABLE troll_smell ADD COLUMN reason TEXT NOT NULL DEFAULT 'pee'");
   } catch {}
+  // "Драка" fight game (see performFight below) — same defensive dual-create
+  // pattern as troll_smell above, so deploy order between the two bots
+  // doesn't matter. tg-bot owns these tables (its own regen job/message
+  // handler read and write them too); troll-bot only reads/writes damage
+  // and injuries through this same connection.
+  tgBotDb.exec(`
+    CREATE TABLE IF NOT EXISTS user_health (
+      user_id INTEGER PRIMARY KEY,
+      health INTEGER NOT NULL DEFAULT 100,
+      max_health INTEGER NOT NULL DEFAULT 100,
+      last_regen_at INTEGER
+    )
+  `);
+  tgBotDb.exec(`
+    CREATE TABLE IF NOT EXISTS injuries (
+      user_id INTEGER PRIMARY KEY,
+      injury_type TEXT NOT NULL,
+      injured_until INTEGER NOT NULL
+    )
+  `);
 } catch (err) {
   console.error('Could not open tg-bot\'s mutes.db — the "smell" feature is disabled. Set TG_BOT_DB_PATH in .env if the path is wrong:', err.message);
 }
