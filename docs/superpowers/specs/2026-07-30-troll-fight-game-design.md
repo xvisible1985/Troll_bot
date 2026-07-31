@@ -3,8 +3,10 @@
 ## Purpose
 
 Replace troll-bot's `/kick` ("👢 Пнуть") with a turn-based fight ("⚔️
-Драка") between a chat user and the troll: 3 rounds, each side takes a
-swing, damage lands on a successful hit. This requires a health stat for
+Драка") between a chat user and the troll: one exchange per press (human
+swings, troll swings back), damage lands on a successful hit — press again
+to keep brawling one hit at a time, rather than one press resolving several
+rounds at once. This requires a health stat for
 every human participant — built in **tg-bot** (`mutes.db`), not troll-bot,
 even though the game itself runs in troll-bot. One combined spec per the
 user's request, even though tg-bot's half must ship and deploy before
@@ -110,9 +112,9 @@ fight either.
    underlying message/click anyway, but Telegram button clicks aren't
    blocked by mute) refuse the same way ("твоя в отключке, какая драка").
 
-### The fight (3 rounds, stops early if either side hits 0)
+### The fight (one exchange per press, skips the counter-swing if the troll hits 0)
 
-Each round, in order:
+Each press of "⚔️ Драка" (subject to the normal cooldown), in order:
 
 1. **Human's swing at the troll.** Pick a random weapon + body part (see
    pools below), roll `rollTrollTryResult(`увернуться от удара ${actorName(from)} ${weapon} ${bodyPart}`)`
@@ -120,8 +122,8 @@ Each round, in order:
    **succeeds** → miss, no damage. Dodge **fails** → hit lands: roll damage
    1-10, apply to the troll's `health` (same `MAX(0, health - dmg)` clamp
    as everywhere else troll health is written).
-2. If the troll's health is now 0, stop the fight early (see "Troll reaches
-   0" below) — skip the troll's counter-swing this round.
+2. If the troll's health is now 0, skip the troll's counter-swing for this
+   press — nothing left to swing back with.
 3. **Troll's counter-swing at the human.** New weapon + body part roll,
    `rollTrollTryResult(`ударить ${actorName(from)} ${weapon} ${bodyPart}`)`
    — same engine again, troll is just the one framed as attempting the
@@ -132,7 +134,9 @@ Each round, in order:
    success) where the underlying `rollTrollTryResult` roll was ≥ 90: roll
    one of `arm`/`leg`/`head` at random and write it to tg-bot's `injuries`
    table with `injured_until = now + 24h`.
-5. If the human's health is now 0, stop the fight early. troll-bot performs
+5. If the human's health is now 0, that's the end of this exchange (no
+   fight "state" to stop — a KO'd human just can't press the button again
+   until unmuted). troll-bot performs
    the mute itself, in the same `tgBotDb` write as the health update — no
    waiting on tg-bot's regen job to notice: `INSERT OR REPLACE INTO mutes
    (user_id, chat_id, username, muted_by, muted_by_name, expires_at) VALUES
@@ -157,10 +161,10 @@ const FIGHT_WEAPONS = ['палкой', 'сковородкой', 'веткой',
 const FIGHT_BODY_PARTS = ['по голове', 'по спине', 'по ноге', 'по руке', 'по животу', 'по попе', 'по лбу', 'в бок'];
 ```
 
-### End of fight
+### End of an exchange
 
-A short summary message once all 3 rounds resolve (or the fight ends
-early): who's left standing, remaining health on both sides. Logged as
+No separate summary message — each swing's own damage line already states
+remaining health for whichever side it hit. Every press is logged as
 `troll_actions.action = 'fight'` (win/loss detail not split into separate
 action names — one category is enough for the existing stats aggregation
 to pick up).

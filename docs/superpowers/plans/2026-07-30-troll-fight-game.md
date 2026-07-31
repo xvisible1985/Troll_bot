@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace troll-bot's `/kick` with a 3-round "Драка" fight mini-game against a human who now has a real health stat (built in tg-bot), complete with critical-hit injuries that block fighting and add passive chat effects.
+**Goal:** Replace troll-bot's `/kick` with a "Драка" fight mini-game against a human who now has a real health stat (built in tg-bot), complete with critical-hit injuries that block fighting and add passive chat effects.
 
-**Architecture:** tg-bot (`c:\Users\123\Projects\tg-bot`) owns two new tables in its existing `mutes.db` — `user_health` and `injuries` — plus a new hourly/daily regen job (its first-ever background timer) and two small additions to its existing message handler and mute-reply logic. troll-bot (`c:\Users\123\Projects\troll-bot`) reads and writes those same tables through its existing `tgBotDb` cross-process connection (the same one already used for `troll_smell`), and replaces `performKick` with a new `performFight` that runs the 3-round exchange using the existing `rollTrollTryResult` dice engine (extended to expose its raw roll for the crit check).
+**Architecture:** tg-bot (`c:\Users\123\Projects\tg-bot`) owns two new tables in its existing `mutes.db` — `user_health` and `injuries` — plus a new hourly/daily regen job (its first-ever background timer) and two small additions to its existing message handler and mute-reply logic. troll-bot (`c:\Users\123\Projects\troll-bot`) reads and writes those same tables through its existing `tgBotDb` cross-process connection (the same one already used for `troll_smell`), and replaces `performKick` with a new `performFight` that runs a single human-swing/troll-counter-swing exchange per press (repeat presses continue the brawl one hit at a time, instead of one press resolving three rounds at once) using the existing `rollTrollTryResult` dice engine (extended to expose its raw roll for the crit check).
 
 **Tech Stack:** Node.js, `better-sqlite3`, `node-telegram-bot-api`, two independent long-polling processes sharing one SQLite file. No test framework in either repo — verification throughout is manual (direct `node -e` scripts against `mutes.db`/`troll.db`), same as every other plan in this repo.
 
@@ -626,7 +626,7 @@ git commit -m "feat: add cross-bot health/injury helper functions for Драка
 
 ---
 
-### Task 9: `performFight` — the 3-round game
+### Task 9: `performFight` — one exchange per press
 
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:1735-1829` (replaces the entire `performKick` function)
@@ -745,13 +745,15 @@ const INJURY_REFUSAL_TEXT = {
   head: 'твоя голова ещё болит, не до драки!',
 };
 
-// Replaces the old /kick — 3 rounds, human swings first each round (troll
-// rolls to dodge), then the troll swings back (troll rolls to land a hit).
-// Both sides use the same rollTrollTryResult 50/50 engine that kick-dodging
-// already used, just with different action text depending on who's
-// "attempting" what. No attitude change either way (see design spec) —
-// this is mutual gameplay, not an unwanted attack, so attitude_kick_delta/
-// checkEnemyDeclaration don't apply here at all.
+// Replaces the old /kick — ONE exchange per press: the human swings first
+// (troll rolls to dodge), then the troll swings back (troll rolls to land
+// a hit). Not a 3-round loop — press "⚔️ Драка" again (subject to the
+// normal cooldown) to keep brawling one hit at a time. Both sides use the
+// same rollTrollTryResult 50/50 engine that kick-dodging already used, just
+// with different action text depending on who's "attempting" what. No
+// attitude change either way (see design spec) — this is mutual gameplay,
+// not an unwanted attack, so attitude_kick_delta/checkEnemyDeclaration
+// don't apply here at all.
 async function performFight(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
@@ -788,52 +790,41 @@ async function performFight(chatId, from) {
   }
 
   let trollHealth = state.health;
-  let humanHealth = challengerHealth.health;
-  const humanMaxHealth = challengerHealth.max_health;
-  let stopped = false;
 
-  for (let round = 1; round <= 3 && !stopped; round++) {
-    // Human's swing at the troll.
-    const humanWeapon = pick(FIGHT_WEAPONS);
-    const humanTarget = pick(FIGHT_BODY_PARTS);
-    const humanSwing = rollTrollTryResult(`увернуться от удара ${actorName(from)} ${humanWeapon} ${humanTarget}`);
-    await bot.sendMessage(chatId, humanSwing.text).catch(() => {});
-    if (!humanSwing.success) {
-      const dmg = Math.floor(Math.random() * 10) + 1;
-      trollHealth = Math.max(0, trollHealth - dmg);
-      db.prepare('UPDATE troll_state SET health = ? WHERE id = 1').run(trollHealth);
-      await bot.sendMessage(chatId, `💥 Урон троллю: ${dmg} (осталось ${trollHealth}/${state.max_health})`).catch(() => {});
-      if (trollHealth === 0) {
-        stopped = true;
-        break;
-      }
-    }
-
-    // Troll's counter-swing at the human.
-    const trollWeapon = pick(FIGHT_WEAPONS);
-    const trollTarget = pick(FIGHT_BODY_PARTS);
-    const trollSwing = rollTrollTryResult(`ударить ${actorName(from)} ${trollWeapon} ${trollTarget}`);
-    await bot.sendMessage(chatId, trollSwing.text).catch(() => {});
-    if (trollSwing.success) {
-      const dmg = Math.floor(Math.random() * 20) + 1;
-      humanHealth = damageHuman(from.id, chatId, from.username || from.first_name, dmg);
-      await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (осталось ${humanHealth}/${humanMaxHealth})`).catch(() => {});
-      if (trollSwing.roll >= 90) {
-        const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
-        applyInjury(from.id, injuryType);
-        await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова'} (на сутки).`).catch(() => {});
-      }
-      if (humanHealth === 0) {
-        stopped = true;
-      }
-    }
+  // Human's swing at the troll.
+  const humanWeapon = pick(FIGHT_WEAPONS);
+  const humanTarget = pick(FIGHT_BODY_PARTS);
+  const humanSwing = rollTrollTryResult(`увернуться от удара ${actorName(from)} ${humanWeapon} ${humanTarget}`);
+  await bot.sendMessage(chatId, humanSwing.text).catch(() => {});
+  if (!humanSwing.success) {
+    const dmg = Math.floor(Math.random() * 10) + 1;
+    trollHealth = Math.max(0, trollHealth - dmg);
+    db.prepare('UPDATE troll_state SET health = ? WHERE id = 1').run(trollHealth);
+    await bot.sendMessage(chatId, `💥 Урон троллю: ${dmg} (осталось ${trollHealth}/${state.max_health})`).catch(() => {});
   }
 
   logAction(from.id, from.username || from.first_name, 'fight');
-  await bot.sendMessage(
-    chatId,
-    `🏁 Драка окончена! Тролль: ${trollHealth}/${state.max_health} здоровья. ${actorName(from)}: ${humanHealth}/${humanMaxHealth} здоровья.`
-  ).catch(() => {});
+
+  // Troll doesn't get a counter-swing if the human's hit just knocked it
+  // to 0 — nothing left to swing back with.
+  if (trollHealth === 0) return;
+
+  // Troll's counter-swing at the human.
+  const trollWeapon = pick(FIGHT_WEAPONS);
+  const trollTarget = pick(FIGHT_BODY_PARTS);
+  const trollSwing = rollTrollTryResult(`ударить ${actorName(from)} ${trollWeapon} ${trollTarget}`);
+  await bot.sendMessage(chatId, trollSwing.text).catch(() => {});
+  if (trollSwing.success) {
+    const dmg = Math.floor(Math.random() * 20) + 1;
+    const humanHealth = damageHuman(from.id, chatId, from.username || from.first_name, dmg);
+    const humanMaxHealth = challengerHealth.max_health;
+    await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (осталось ${humanHealth}/${humanMaxHealth})`).catch(() => {});
+    if (trollSwing.roll >= 90) {
+      const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
+      applyInjury(from.id, injuryType);
+      await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова'} (на сутки).`).catch(() => {});
+    }
+  }
 }
 ```
 
@@ -846,7 +837,7 @@ Expected: no output, exit code 0.
 
 ```bash
 git add bot.js
-git commit -m "feat: replace performKick with the 3-round Драка fight game"
+git commit -m "feat: replace performKick with the one-exchange Драка fight game"
 ```
 
 ---
@@ -980,9 +971,12 @@ Both bots must be deployed and restarted before this task (tg-bot's Tasks 1-4 an
 
 - [ ] **Step 1: Confirm the button and command both start a fight**
 
-Send `/troll`, click "⚔️ Драка". Expected: 3 rounds of alternating swing
-messages (or fewer if someone hits 0 mid-fight), then the "🏁 Драка
-окончена!" summary. Also try `/fight` directly.
+Send `/troll`, click "⚔️ Драка". Expected: one human-swing message (plus a
+damage line if it landed), then one troll-counter-swing message (plus a
+damage line if it landed) — unless the human's swing just knocked the
+troll to 0, in which case there's no counter-swing at all. Click "⚔️ Драка"
+again (once past the cooldown) to confirm it runs another single exchange,
+not a repeat of the same round. Also try `/fight` directly.
 
 - [ ] **Step 2: Confirm troll damage persists in `troll_state`**
 
