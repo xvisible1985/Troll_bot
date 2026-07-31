@@ -21,6 +21,7 @@ const DEFAULT_SETTINGS_KEYS = [
   'lust_gain_per_boobs', 'lust_trigger_threshold', 'lust_action_interval_minutes',
   'fight_daily_limit',
   'mood_drink_good_delta', 'attitude_drink_good_delta', 'mood_drink_bad_delta',
+  'mood_drink_friend_delta', 'attitude_drink_friend_delta',
   'sobriety_loss_per_drink', 'sobriety_drunk_threshold', 'drunk_duration_minutes',
 ];
 

@@ -548,11 +548,13 @@ const DEFAULT_SETTINGS = {
   // frequent_arguer_window_hours above, just a separate counter.
   fight_daily_limit: '5',
   // "Бухать с тролем" (see performDrink) — outcome deltas and the sobriety/
-  // drunk-debuff knobs. The 60/30/10 outcome split and the beating's 3x
+  // drunk-debuff knobs. The 60/30/5/5 outcome split and the beating's 3x
   // 1-20 damage are fixed, same precedent as Драка's weapon/damage pools.
   mood_drink_good_delta: '15',
   attitude_drink_good_delta: '10',
   mood_drink_bad_delta: '15',
+  mood_drink_friend_delta: '25',
+  attitude_drink_friend_delta: '20',
   sobriety_loss_per_drink: '25',
   sobriety_drunk_threshold: '30',
   drunk_duration_minutes: '60',
@@ -2103,11 +2105,15 @@ function performBoobs(chatId, from) {
 }
 
 // "Бухать с тролем" — 60% good session (mood+attitude up), 30% argument
-// (mood down), 10% the troll beats you up (3 guaranteed hits, same
-// weapon/body-part pools and crit-injury rule as Драка's counter-swing,
-// just with no dodge roll — you're too drunk to avoid it). Every session
-// also drains char_sobriety; crossing sobriety_drunk_threshold (and not
-// already drunk) starts the 1h "пьяный" debuff and sobers back up to 100.
+// (mood down), 5% the troll beats you up (3 guaranteed hits, same weapon/
+// body-part pools and crit-injury rule as Драка's counter-swing, just with
+// no dodge roll — you're too drunk to avoid it), 5% befriend (a bigger
+// mood+attitude boost than the plain good outcome). Every session also
+// drains char_sobriety; crossing sobriety_drunk_threshold (and not already
+// drunk) starts the 1h "пьяный" debuff and sobers back up to 100. Also: on
+// exactly your 5th lifetime drink with the troll, if you're currently its
+// enemy, that's forgiven outright (is_enemy cleared, attitude reset to 0) —
+// separate from the random "befriend" outcome above.
 async function performDrink(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   const isAdminTestChat = chatId === ADMIN_CHAT_ID;
@@ -2142,7 +2148,7 @@ async function performDrink(chatId, from) {
   } else if (roll < 90) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - ?) WHERE id = 1').run(getSettingNumber('mood_drink_bad_delta'));
     await bot.sendMessage(chatId, `🍻 ${actorName(from)} поссорился с троллем по пьяни — настроение упало.`).catch(() => {});
-  } else {
+  } else if (roll < 95) {
     await bot.sendMessage(chatId, `🍻 ${actorName(from)} перебрал — тролль дал пиздюлей!`).catch(() => {});
     for (let i = 0; i < 3; i++) {
       const weapon = pick(FIGHT_WEAPONS);
@@ -2161,6 +2167,18 @@ async function performDrink(chatId, from) {
       }
       if (after === 0) break;
     }
+  } else {
+    db.prepare('UPDATE troll_state SET mood = MIN(100, mood + ?) WHERE id = 1').run(getSettingNumber('mood_drink_friend_delta'));
+    adjustAttitude(from.id, getSettingNumber('attitude_drink_friend_delta'));
+    await bot.sendMessage(chatId, `🍻 ${actorName(from)} и тролль спились в дым и стали лучшими друзьями!`).catch(() => {});
+  }
+
+  const drinkCount = db.prepare(
+    "SELECT COUNT(*) AS n FROM troll_actions WHERE user_id = ? AND action = 'drink'"
+  ).get(from.id).n;
+  if (drinkCount === 5 && isEnemy(from.id)) {
+    db.prepare('UPDATE troll_relationships SET is_enemy = 0, attitude = 0 WHERE user_id = ?').run(from.id);
+    await bot.sendMessage(chatId, `🤝 ${actorName(from)} и тролль бухали вместе уже 5 раз — тролль больше не держит зла, вы снова никто друг другу.`).catch(() => {});
   }
 
   const sobrietyLoss = getSettingNumber('sobriety_loss_per_drink');
@@ -3073,7 +3091,7 @@ const TROLL_HELP_PUBLIC = [
   '/fight — подраться с тролем (⚔️ один обмен ударами за раз: сначала бьёшь ты — тролль может увернуться или потерять здоровье; затем отвечает тролль — если попадёт, теряешь здоровье, а критический удар может дать травму на сутки (рука/нога/голова — блокирует драки, пока не пройдёт); при 0 здоровья тебя вырубает и мутит на 30 минут; лимит попыток в день на человека настраивается админом)',
   '/tease — подразнить тролля (-настроение, +злость)',
   '/boobs — показать тролю сиську (+похоть, реакция зависит от стадии роста)',
-  '/drink — бухать с тролем (🍻 60% — хорошо посидели, +настроение +отношение; 30% — поссорились, -настроение; 10% — тролль дал пиздюлей, 3 удара подряд); частое бухалово роняет трезвость тролля и рано или поздно вгоняет его в запой на час — весь этот час он максимально злой на всех',
+  '/drink — бухать с тролем (🍻 60% — хорошо посидели, +настроение +отношение; 30% — поссорились, -настроение; 5% — тролль дал пиздюлей, 3 удара подряд; 5% — подружились, большой плюс к настроению и отношению); частое бухалово роняет трезвость тролля и рано или поздно вгоняет его в запой на час — весь этот час он максимально злой на всех; если побухать с тролем 5 раз, будучи его врагом — вражда прощается, отношение сбрасывается в 0',
   '/teach <фраза> — научить тролля фразе; он потом будет иногда повторять её случайным людям (можно и просто ответить на любое сообщение тролля)',
 ].join('\n');
 
