@@ -102,10 +102,8 @@ function applyInjury(userId, injuryType) {
 // row. Returns null only if tgBotDb itself is unavailable.
 function getUserHealth(userId) {
   if (!tgBotDb) return null;
-  const row = tgBotDb.prepare('SELECT health, max_health FROM user_health WHERE user_id = ?').get(userId);
-  if (row) return row;
-  tgBotDb.prepare('INSERT INTO user_health (user_id, health, max_health) VALUES (?, 100, 100)').run(userId);
-  return { health: 100, max_health: 100 };
+  tgBotDb.prepare('INSERT OR IGNORE INTO user_health (user_id, health, max_health) VALUES (?, 100, 100)').run(userId);
+  return tgBotDb.prepare('SELECT health, max_health FROM user_health WHERE user_id = ?').get(userId);
 }
 
 // Applies fight damage, floors at 0, and — if it reaches exactly 0 — mutes
@@ -116,8 +114,7 @@ function getUserHealth(userId) {
 function damageHuman(userId, chatId, username, damage) {
   if (!tgBotDb) return null;
   getUserHealth(userId);
-  tgBotDb.prepare('UPDATE user_health SET health = MAX(0, health - ?) WHERE user_id = ?').run(damage, userId);
-  const row = tgBotDb.prepare('SELECT health FROM user_health WHERE user_id = ?').get(userId);
+  const row = tgBotDb.prepare('UPDATE user_health SET health = MAX(0, health - ?) WHERE user_id = ? RETURNING health').get(damage, userId);
   if (row.health === 0) {
     const expiresAt = Math.floor(Date.now() / 1000) + 30 * 60;
     tgBotDb.prepare(
