@@ -162,7 +162,7 @@ const PUBLIC_COMMANDS = [
   { command: 'troll', description: 'Статус тролля (здоровье, сытость, настроение, стадия)' },
   { command: 'play', description: 'Поиграть с тролем' },
   { command: 'feed', description: 'Покормить тролля' },
-  { command: 'kick', description: 'Пнуть тролля' },
+  { command: 'fight', description: 'Подраться с тролем' },
   { command: 'tease', description: 'Подразнить тролля' },
   { command: 'boobs', description: 'Показать тролю сиську' },
   { command: 'teach', description: 'Научить тролля фразе' },
@@ -317,8 +317,9 @@ for (const column of ['char_appetite', 'char_playfulness', 'char_anger', 'char_l
   } catch {}
 }
 // Global kick lockout — set when the troll successfully hides after being
-// kicked twice within an hour; while in the future, /kick does nothing for
-// anyone (see performKick).
+// kicked twice within an hour, back when /kick existed. Left in the schema
+// for history; performFight (which replaced performKick) never reads or
+// writes this column, so the lockout is now dead code.
 try {
   db.exec('ALTER TABLE troll_state ADD COLUMN kick_locked_until INTEGER');
 } catch {}
@@ -357,8 +358,9 @@ try {
 // a fixed nap that trades weight for health in small ticks (see
 // backgroundTick). regen_sleep_started_at gates "currently resting" and
 // drives progress; last_regen_sleep_at gates the cooldown before the next
-// one is allowed, set whether the nap finished naturally or was cut short
-// by a kick (see performKick).
+// one is allowed, set whether the nap finished naturally — performFight
+// (which replaced performKick) no longer wakes the troll early, so this now
+// only ever finishes naturally.
 for (const column of ['regen_sleep_started_at', 'last_regen_sleep_at']) {
   try {
     db.exec(`ALTER TABLE troll_state ADD COLUMN ${column} INTEGER`);
@@ -1288,7 +1290,7 @@ function logAction(userId, username, action) {
 
 // --- Relationships ---
 // Called anywhere the troll "notices" someone — any ordinary message in its
-// home chat, or /play, /feed, /kick (even from someone who only ever uses
+// home chat, or /play, /feed, /fight (even from someone who only ever uses
 // commands and never sends plain messages). Upserts so username/first_name
 // stay current if the person renames themselves; attitude starts at 0
 // (neutral) and is never touched here — only adjustAttitude moves it.
@@ -1614,7 +1616,7 @@ const TROLL_ACTION_KEYBOARD = {
       [
         { text: '🎮 Играть', callback_data: 'troll_play' },
         { text: '🍗 Покормить', callback_data: 'troll_feed' },
-        { text: '👢 Пнуть', callback_data: 'troll_kick' },
+        { text: '⚔️ Драка', callback_data: 'troll_fight' },
       ],
       [
         { text: '😈 Дразнить', callback_data: 'troll_tease' },
@@ -1740,10 +1742,10 @@ bot.onText(/\/troll_character\b/, (msg) => {
   bot.sendMessage(msg.chat.id, lines.join('\n'));
 });
 
-// --- Public commands: play / kick / feed ---
+// --- Public commands: play / fight / feed ---
 // Extracted from the command handlers so the /troll card's inline buttons
 // (and the callback_query handler below) can trigger the exact same logic
-// as typing /play, /feed, /kick — only chatId/from are actually used by any
+// as typing /play, /feed, /fight — only chatId/from are actually used by any
 // of these, so a callback_query's message.chat/from line up just as well.
 function actorName(from) {
   return from.username ? `@${from.username}` : from.first_name;
@@ -1774,11 +1776,13 @@ function checkCommandCooldown(userId, command) {
   return true;
 }
 
-// Note: isSilenced (the 1-hour window after /kick) intentionally does NOT
-// gate these three — being "silenced" only suppresses autonomous mischief
-// (checked separately in backgroundTick and the message handler), not direct
-// interaction. The troll always reacts to /play, /feed, /kick regardless of
-// how recently it was kicked.
+// Note: isSilenced (previously a 1-hour window set after a landed /kick)
+// intentionally does NOT gate these three — being "silenced" only suppresses
+// autonomous mischief (checked separately in backgroundTick and the message
+// handler), not direct interaction. The troll always reacts to /play, /feed,
+// /fight regardless of how recently it was hit — moot in practice now, since
+// performFight (which replaced performKick) never sets silenced_until, so
+// this window no longer opens at all.
 function performPlay(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state || chatId !== state.chat_id) return;
@@ -2028,8 +2032,8 @@ bot.onText(/\/play\b/, (msg) => {
   performPlay(msg.chat.id, msg.from);
 });
 
-bot.onText(/\/kick\b/, (msg) => {
-  performKick(msg.chat.id, msg.from);
+bot.onText(/\/fight\b/, (msg) => {
+  performFight(msg.chat.id, msg.from);
 });
 
 bot.onText(/\/feed\b/, (msg) => {
@@ -2135,7 +2139,7 @@ bot.on('callback_query', (query) => {
   if (!chatId) return;
   if (query.data === 'troll_play') performPlay(chatId, query.from);
   else if (query.data === 'troll_feed') performFeed(chatId, query.from);
-  else if (query.data === 'troll_kick') performKick(chatId, query.from);
+  else if (query.data === 'troll_fight') performFight(chatId, query.from);
   else if (query.data === 'troll_tease') performTease(chatId, query.from);
   else if (query.data === 'troll_boobs') performBoobs(chatId, query.from);
   else return;
@@ -2167,7 +2171,7 @@ function maybeRememberedUser() {
 // Tracks the last few ordinary (non-bot, non-command) senders in the troll's
 // home chat, in memory only — not persisted, purely for picking a live
 // "victim" for targeted mischief. Separate from troll_actions (which only
-// logs /play, /kick, /feed) and from maybeRememberedUser above, which still
+// logs /play, /fight, /feed) and from maybeRememberedUser above, which still
 // draws from that older history for the existing detached-mischief aside.
 const RECENT_MESSAGES_MAX = 10;
 let recentMessages = [];
@@ -2499,8 +2503,9 @@ function backgroundTick() {
 
   // Regen sleep overrides everything else while it's running — no night
   // check, no mischief/hunger/eat/poop/pee this tick. It only ends here
-  // (naturally) or via a /kick (see performKick) — see the eligibility
-  // check further down for how it starts.
+  // (naturally) now — performFight (which replaced performKick) no longer
+  // wakes the troll early — see the eligibility check further down for how
+  // it starts.
   if (state.regen_sleep_started_at) {
     handleRegenSleepTick(state, now);
     return;
@@ -2909,7 +2914,7 @@ const TROLL_HELP_PUBLIC = [
   '/troll_character — характер тролля (аппетит, игривость, злость, похоть, вредность)',
   '/play — поиграть с тролем (+настроение, +игривость, -злость)',
   '/feed — покормить тролля (+здоровье, +сытость, +настроение; от 90 до 99 сытости — переедает и это растит аппетит; при 100 — кинет еду обратно)',
-  '/kick — пнуть тролля (тролль может увернуться — тогда огрызнётся в ответ и заблокирует тебе кнопку "Пнуть" на час; если попал — -настроение, -здоровье, замолкает на час; после 2 удачных пинков за час тролль может спрятаться и заблокировать пинки для всех)',
+  '/fight — подраться с тролем (⚔️ один обмен ударами за раз: сначала бьёшь ты — тролль может увернуться или потерять здоровье; затем отвечает тролль — если попадёт, теряешь здоровье, а критический удар может дать травму на сутки (рука/нога/голова — блокирует драки, пока не пройдёт); при 0 здоровья тебя вырубает и мутит на 30 минут)',
   '/tease — подразнить тролля (-настроение, +злость)',
   '/boobs — показать тролю сиську (+похоть, реакция зависит от стадии роста)',
   '/teach <фраза> — научить тролля фразе; он потом будет иногда повторять её случайным людям (можно и просто ответить на любое сообщение тролля)',
