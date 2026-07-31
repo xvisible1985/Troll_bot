@@ -19,7 +19,7 @@ const TOP_H = 440;
 const SECTION_GAP = 28;
 const BAR_ROW_H = 112;
 const PORTRAIT_W = 300;
-const HEIGHT = PAD * 2 + TITLE_H + SECTION_GAP + TOP_H + SECTION_GAP + BAR_ROW_H * 4;
+const HEIGHT = PAD * 2 + TITLE_H + SECTION_GAP + TOP_H + SECTION_GAP + BAR_ROW_H * 5;
 
 const COLORS = {
   bg: '#181c16',
@@ -32,6 +32,7 @@ const COLORS = {
   mood: '#8bab7a',
   attitudePos: '#8bab7a',
   attitudeNeg: '#d97a7a',
+  lust: '#c77dbb',
 };
 
 function roundRectPath(ctx, x, y, w, h, r) {
@@ -106,6 +107,16 @@ function drawIcon(ctx, kind, cx, cy, size, color) {
       ctx.beginPath(); ctx.arc(cx - size * 0.28, cy, size * 0.17, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(cx + size * 0.28, cy, size * 0.17, 0, Math.PI * 2); ctx.fill();
       ctx.fillRect(cx - size * 0.18, cy - size * 0.05, size * 0.36, size * 0.1);
+      break;
+    case 'flame':
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + size * 0.4);
+      ctx.bezierCurveTo(cx - size * 0.34, cy + size * 0.12, cx - size * 0.2, cy - size * 0.28, cx + size * 0.04, cy - size * 0.45);
+      ctx.bezierCurveTo(cx, cy - size * 0.2, cx + size * 0.16, cy - size * 0.14, cx + size * 0.14, cy + size * 0.02);
+      ctx.bezierCurveTo(cx + size * 0.24, cy - size * 0.05, cx + size * 0.3, cy + size * 0.04, cx + size * 0.3, cy + size * 0.15);
+      ctx.bezierCurveTo(cx + size * 0.3, cy + size * 0.32, cx + size * 0.16, cy + size * 0.4, cx, cy + size * 0.4);
+      ctx.closePath();
+      ctx.fill();
       break;
     case 'paw':
       ctx.beginPath();
@@ -261,6 +272,7 @@ async function renderTrollCard(data) {
   barRow('drumstick', COLORS.satiety, 'Сытость', `${data.satiety}/100 (${data.satietyWord})`, data.satiety, 100, false);
   barRow('smiley', COLORS.mood, 'Настроение', `${data.mood}/100 (${data.moodWord})`, data.mood, 100, false);
   barRow('handshake', COLORS.attitudePos, 'Отношение к тебе', `${data.attitude > 0 ? '+' : ''}${data.attitude} (${data.attitudeWord})`, data.attitude, 100, true);
+  barRow('flame', COLORS.lust, 'Похоть', `${data.lust}/100`, data.lust, 100, false);
 
   return canvas.encode('png');
 }

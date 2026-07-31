@@ -1725,6 +1725,7 @@ bot.onText(/\/troll\b/, async (msg) => {
       stageName: STAGE_NAMES[state.stage],
       weight: state.weight,
       activity,
+      lust: state.char_lust,
     });
     const photoOptions = cocoonCaption ? { ...TROLL_ACTION_KEYBOARD, caption: cocoonCaption } : TROLL_ACTION_KEYBOARD;
     await bot.sendPhoto(msg.chat.id, buffer, photoOptions);
@@ -1738,6 +1739,7 @@ bot.onText(/\/troll\b/, async (msg) => {
       `🌱 Стадия: ${STAGE_NAMES[state.stage]}`,
       `🎭 Занятие: ${activity}`,
       `🤝 Отношение к тебе: ${attitudeWord(attitude)} (${attitude > 0 ? '+' : ''}${attitude})`,
+      `💋 Похоть: ${state.char_lust}/100`,
     ];
     if (cocoonCaption) lines.push('', cocoonCaption);
     bot.sendMessage(msg.chat.id, lines.join('\n'), TROLL_ACTION_KEYBOARD);
