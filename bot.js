@@ -1880,7 +1880,7 @@ async function performFight(chatId, from) {
     const dmg = Math.floor(Math.random() * 10) + 1;
     db.prepare('UPDATE troll_state SET health = MAX(0, health - ?) WHERE id = 1').run(dmg);
     trollHealth = db.prepare('SELECT health FROM troll_state WHERE id = 1').get().health;
-    await bot.sendMessage(chatId, `💥 Урон троллю: ${dmg} (осталось ${trollHealth}/${state.max_health})`).catch(() => {});
+    await bot.sendMessage(chatId, `💥 Урон троллю: ${dmg} (${state.health} -> ${trollHealth})`).catch(() => {});
   }
 
   logAction(from.id, from.username || from.first_name, 'fight');
@@ -1897,8 +1897,7 @@ async function performFight(chatId, from) {
   if (trollSwing.success) {
     const dmg = Math.floor(Math.random() * 20) + 1;
     const humanHealth = damageHuman(from.id, chatId, from.username || from.first_name, dmg);
-    const humanMaxHealth = challengerHealth.max_health;
-    await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (осталось ${humanHealth}/${humanMaxHealth})`).catch(() => {});
+    await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (${challengerHealth.health} -> ${humanHealth})`).catch(() => {});
     if (trollSwing.roll >= 90) {
       const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
       applyInjury(from.id, injuryType);
