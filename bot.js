@@ -1687,7 +1687,7 @@ function buildAllTimeStatsCaption(state) {
 bot.onText(/\/troll\b/, async (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет. Позови его через /troll_here.');
-  if (msg.chat.id !== state.chat_id) return;
+  if (msg.chat.id !== state.chat_id && msg.chat.id !== ADMIN_CHAT_ID) return;
   const relRow = db.prepare('SELECT attitude FROM troll_relationships WHERE user_id = ?').get(msg.from.id);
   const attitude = relRow ? relRow.attitude : 0;
   const activity = getActivityLine(state);
@@ -1732,7 +1732,7 @@ bot.onText(/\/troll\b/, async (msg) => {
 bot.onText(/\/troll_character\b/, (msg) => {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
   if (!state) return bot.sendMessage(msg.chat.id, 'Тролля ещё нет. Позови его через /troll_here.');
-  if (msg.chat.id !== state.chat_id) return;
+  if (msg.chat.id !== state.chat_id && msg.chat.id !== ADMIN_CHAT_ID) return;
   const lines = [
     '🎭 Характер тролля:',
     `🍽️ Аппетит: ${state.char_appetite}/100`,
@@ -1787,17 +1787,18 @@ function checkCommandCooldown(userId, command) {
 // this window no longer opens at all.
 function performPlay(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || chatId !== state.chat_id) return;
+  const isAdminTestChat = chatId === ADMIN_CHAT_ID;
+  if (!state || (chatId !== state.chat_id && !isAdminTestChat)) return;
   if (!checkCommandCooldown(from.id, 'play')) return;
-  if (state.cocoon_started_at) {
+  if (state.cocoon_started_at && !isAdminTestChat) {
     bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
     return;
   }
-  if (state.regen_sleep_started_at) {
+  if (state.regen_sleep_started_at && !isAdminTestChat) {
     bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
     return;
   }
-  if (state.is_asleep) {
+  if (state.is_asleep && !isAdminTestChat) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
     sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from), from.id);
     return;
@@ -1834,7 +1835,8 @@ const INJURY_REFUSAL_TEXT = {
 // don't apply here at all.
 async function performFight(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || chatId !== state.chat_id) return;
+  const isAdminTestChat = chatId === ADMIN_CHAT_ID;
+  if (!state || (chatId !== state.chat_id && !isAdminTestChat)) return;
   noticeUser(from.id, from.username, from.first_name);
 
   if (!tgBotDb) {
@@ -1858,11 +1860,11 @@ async function performFight(chatId, from) {
 
   if (!checkCommandCooldown(from.id, 'fight')) return;
 
-  if (state.cocoon_started_at) {
+  if (state.cocoon_started_at && !isAdminTestChat) {
     await bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
     return;
   }
-  if (state.regen_sleep_started_at) {
+  if (state.regen_sleep_started_at && !isAdminTestChat) {
     await bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
     return;
   }
@@ -1924,17 +1926,18 @@ function applyEatStats(overeating) {
 
 function performFeed(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || chatId !== state.chat_id) return;
+  const isAdminTestChat = chatId === ADMIN_CHAT_ID;
+  if (!state || (chatId !== state.chat_id && !isAdminTestChat)) return;
   if (!checkCommandCooldown(from.id, 'feed')) return;
-  if (state.cocoon_started_at) {
+  if (state.cocoon_started_at && !isAdminTestChat) {
     bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
     return;
   }
-  if (state.regen_sleep_started_at) {
+  if (state.regen_sleep_started_at && !isAdminTestChat) {
     bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
     return;
   }
-  if (state.is_asleep) {
+  if (state.is_asleep && !isAdminTestChat) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
     sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from), from.id);
     return;
@@ -1974,17 +1977,18 @@ function performFeed(chatId, from) {
 
 function performTease(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || chatId !== state.chat_id) return;
+  const isAdminTestChat = chatId === ADMIN_CHAT_ID;
+  if (!state || (chatId !== state.chat_id && !isAdminTestChat)) return;
   if (!checkCommandCooldown(from.id, 'tease')) return;
-  if (state.cocoon_started_at) {
+  if (state.cocoon_started_at && !isAdminTestChat) {
     bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
     return;
   }
-  if (state.regen_sleep_started_at) {
+  if (state.regen_sleep_started_at && !isAdminTestChat) {
     bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
     return;
   }
-  if (state.is_asleep) {
+  if (state.is_asleep && !isAdminTestChat) {
     db.prepare('UPDATE troll_state SET mood = MAX(0, mood - 10) WHERE id = 1').run();
     sendCategoryReplyForStage(chatId, 'woken_angry', state.stage, 'Твоя разбудить моя! Моя злой!', actorName(from), from.id);
     return;
@@ -2004,13 +2008,14 @@ const BOOBS_CATEGORY_BY_STAGE = { 1: 'boobs_baby', 2: 'boobs_teen', 3: 'boobs_yo
 
 function performBoobs(chatId, from) {
   const state = db.prepare('SELECT * FROM troll_state WHERE id = 1').get();
-  if (!state || chatId !== state.chat_id) return;
+  const isAdminTestChat = chatId === ADMIN_CHAT_ID;
+  if (!state || (chatId !== state.chat_id && !isAdminTestChat)) return;
   if (!checkCommandCooldown(from.id, 'boobs')) return;
-  if (state.cocoon_started_at) {
+  if (state.cocoon_started_at && !isAdminTestChat) {
     bot.sendMessage(chatId, COCOON_REPLY).catch(() => {});
     return;
   }
-  if (state.regen_sleep_started_at) {
+  if (state.regen_sleep_started_at && !isAdminTestChat) {
     bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
     return;
   }
