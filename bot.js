@@ -1870,8 +1870,8 @@ async function performFight(chatId, from) {
   await bot.sendMessage(chatId, humanSwing.text).catch(() => {});
   if (!humanSwing.success) {
     const dmg = Math.floor(Math.random() * 10) + 1;
-    trollHealth = Math.max(0, trollHealth - dmg);
-    db.prepare('UPDATE troll_state SET health = ? WHERE id = 1').run(trollHealth);
+    db.prepare('UPDATE troll_state SET health = MAX(0, health - ?) WHERE id = 1').run(dmg);
+    trollHealth = db.prepare('SELECT health FROM troll_state WHERE id = 1').get().health;
     await bot.sendMessage(chatId, `💥 Урон троллю: ${dmg} (осталось ${trollHealth}/${state.max_health})`).catch(() => {});
   }
 
