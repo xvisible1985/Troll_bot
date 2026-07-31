@@ -1773,6 +1773,7 @@ bot.onText(/\/troll\b/, async (msg) => {
       weight: state.weight,
       activity,
       lust: state.char_lust,
+      sobriety: state.char_sobriety,
     });
     const photoOptions = cocoonCaption ? { ...TROLL_ACTION_KEYBOARD, caption: cocoonCaption } : TROLL_ACTION_KEYBOARD;
     await bot.sendPhoto(msg.chat.id, buffer, photoOptions);
@@ -1781,12 +1782,13 @@ bot.onText(/\/troll\b/, async (msg) => {
     const lines = [
       `❤️ Здоровье: ${state.health}/${state.max_health}`,
       `🍖 Сытость: ${state.satiety}/100 (${satietyWord(state.satiety)})`,
-      `⚖️ Вес: ${state.weight} кг`,
+      `🍺 Трезвость: ${state.char_sobriety}/100`,
+      `💋 Похоть: ${state.char_lust}/100`,
       `😊 Настроение: ${moodWord(state.mood)}`,
+      `🤝 Отношение к тебе: ${attitudeWord(attitude)} (${attitude > 0 ? '+' : ''}${attitude})`,
+      `⚖️ Вес: ${state.weight} кг`,
       `🌱 Стадия: ${STAGE_NAMES[state.stage]}`,
       `🎭 Занятие: ${activity}`,
-      `🤝 Отношение к тебе: ${attitudeWord(attitude)} (${attitude > 0 ? '+' : ''}${attitude})`,
-      `💋 Похоть: ${state.char_lust}/100`,
     ];
     if (cocoonCaption) lines.push('', cocoonCaption);
     bot.sendMessage(msg.chat.id, lines.join('\n'), TROLL_ACTION_KEYBOARD);

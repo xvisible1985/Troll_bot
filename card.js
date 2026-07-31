@@ -19,7 +19,7 @@ const TOP_H = 440;
 const SECTION_GAP = 28;
 const BAR_ROW_H = 112;
 const PORTRAIT_W = 300;
-const HEIGHT = PAD * 2 + TITLE_H + SECTION_GAP + TOP_H + SECTION_GAP + BAR_ROW_H * 5;
+const HEIGHT = PAD * 2 + TITLE_H + SECTION_GAP + TOP_H + SECTION_GAP + BAR_ROW_H * 6;
 
 const COLORS = {
   bg: '#181c16',
@@ -33,6 +33,7 @@ const COLORS = {
   attitudePos: '#8bab7a',
   attitudeNeg: '#d97a7a',
   lust: '#c77dbb',
+  sobriety: '#7aa8c7',
 };
 
 function roundRectPath(ctx, x, y, w, h, r) {
@@ -117,6 +118,14 @@ function drawIcon(ctx, kind, cx, cy, size, color) {
       ctx.bezierCurveTo(cx + size * 0.3, cy + size * 0.32, cx + size * 0.16, cy + size * 0.4, cx, cy + size * 0.4);
       ctx.closePath();
       ctx.fill();
+      break;
+    case 'mug':
+      roundRectPath(ctx, cx - size * 0.22, cy - size * 0.28, size * 0.44, size * 0.56, size * 0.08);
+      ctx.fill();
+      ctx.lineWidth = size * 0.12;
+      ctx.beginPath();
+      ctx.arc(cx + size * 0.22 + size * 0.16, cy, size * 0.18, -Math.PI * 0.55, Math.PI * 0.55);
+      ctx.stroke();
       break;
     case 'paw':
       ctx.beginPath();
@@ -270,9 +279,10 @@ async function renderTrollCard(data) {
 
   barRow('heart', COLORS.health, 'Здоровье', `${data.health}/${data.maxHealth}`, data.health, data.maxHealth, false);
   barRow('drumstick', COLORS.satiety, 'Сытость', `${data.satiety}/100 (${data.satietyWord})`, data.satiety, 100, false);
+  barRow('mug', COLORS.sobriety, 'Трезвость', `${data.sobriety}/100`, data.sobriety, 100, false);
+  barRow('flame', COLORS.lust, 'Похоть', `${data.lust}/100`, data.lust, 100, false);
   barRow('smiley', COLORS.mood, 'Настроение', `${data.mood}/100 (${data.moodWord})`, data.mood, 100, false);
   barRow('handshake', COLORS.attitudePos, 'Отношение к тебе', `${data.attitude > 0 ? '+' : ''}${data.attitude} (${data.attitudeWord})`, data.attitude, 100, true);
-  barRow('flame', COLORS.lust, 'Похоть', `${data.lust}/100`, data.lust, 100, false);
 
   return canvas.encode('png');
 }
