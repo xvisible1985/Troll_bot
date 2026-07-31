@@ -80,6 +80,7 @@ const SETTING_LABELS = {
   sobriety_loss_per_drink: 'Бухалово: потеря трезвости за сессию',
   sobriety_drunk_threshold: 'Бухалово: порог трезвости для запоя',
   drunk_duration_minutes: 'Бухалово: длительность запоя, мин',
+  drunk_attack_interval_minutes: 'Бухалово: интервал удара дубинкой в запое, мин',
 };
 const SETTING_RANGES = {
   naughtiness: [1, 10, 1],
@@ -131,6 +132,7 @@ const SETTING_RANGES = {
   sobriety_loss_per_drink: [5, 100, 5],
   sobriety_drunk_threshold: [0, 100, 5],
   drunk_duration_minutes: [10, 240, 10],
+  drunk_attack_interval_minutes: [5, 120, 5],
 };
 
 async function loadStatus() {

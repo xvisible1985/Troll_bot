@@ -328,6 +328,11 @@ try {
 try {
   db.exec('ALTER TABLE troll_state ADD COLUMN drunk_until INTEGER');
 } catch {}
+// Cooldown for the drunk-only autonomous club attack (see triggerDrunkAttack
+// in backgroundTick) — separate timer from every other autonomous action.
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN last_drunk_attack_at INTEGER');
+} catch {}
 // Global kick lockout — set when the troll successfully hides after being
 // kicked twice within an hour, back when /kick existed. Left in the schema
 // for history; performFight (which replaced performKick) never reads or
@@ -558,6 +563,11 @@ const DEFAULT_SETTINGS = {
   sobriety_loss_per_drink: '25',
   sobriety_drunk_threshold: '30',
   drunk_duration_minutes: '60',
+  // While drunk (see isDrunk), the troll autonomously clubs a random known
+  // person every drunk_attack_interval_minutes (see triggerDrunkAttack) —
+  // same roll/damage/crit-injury rules as Драка's counter-swing, just with
+  // a fixed "дубинка" weapon instead of the random pool.
+  drunk_attack_interval_minutes: '20',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -1740,6 +1750,7 @@ function buildAllTimeStatsCaption(state) {
     `😳 Не сдержался от похоти: ${totalFor('lust_action')}`,
     `💋 Похоть: ${state.char_lust}/100`,
     `🍻 Бухал: ${totalFor('drink')}`,
+    `🏏 Дубинкой в запое: ${totalFor('drunk_attack')}`,
     `🍺 Трезвость: ${state.char_sobriety}/100`,
     '',
     TROLL_CHARACTER_SUMMARY,
@@ -2439,6 +2450,39 @@ function triggerLustAction(chatId, stage, now) {
   logAction(target.userId, target.username || target.firstName, 'lust_action');
 }
 
+// While drunk (see isDrunk/performDrink), the troll autonomously clubs a
+// random known person every drunk_attack_interval_minutes — same roll/
+// damage/crit-injury rules as Драка's counter-swing (rollTrollTryResult,
+// 1-20 damage, roll>=90 injury), just a fixed "дубинка" instead of a random
+// weapon, and no dodge attempt from the target (they didn't ask for this).
+// Target picked the same weighted-random way as ordinary mischief (mama
+// excluded); stamps last_drunk_attack_at even on a miss so a string of
+// misses doesn't retry every tick.
+function triggerDrunkAttack(chatId, now) {
+  if (!tgBotDb) return;
+  const targetInfo = pickMischiefTarget();
+  if (!targetInfo) return;
+  const target = targetInfo.entry;
+  const name = getMentionName(target);
+  db.prepare('UPDATE troll_state SET last_drunk_attack_at = ? WHERE id = 1').run(now);
+  logAction(target.userId, target.username || target.firstName, 'drunk_attack');
+  bot.sendMessage(chatId, `🥴 Бухому троллю не понравилось, как на него посмотрел ${name}!`).catch(() => {});
+  const bodyPart = pick(FIGHT_BODY_PARTS);
+  const swing = rollTrollTryResult(`ударить ${name} дубинкой ${bodyPart}`);
+  bot.sendMessage(chatId, swing.text).catch(() => {});
+  if (!swing.success) return;
+  const dmg = Math.floor(Math.random() * 20) + 1;
+  const before = getUserHealth(target.userId);
+  const after = damageHuman(target.userId, chatId, target.username || target.firstName, dmg);
+  bot.sendMessage(chatId, `💥 Урон ${name}: ${dmg} (${before.health} -> ${after})`).catch(() => {});
+  if (swing.roll >= 90) {
+    const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
+    applyInjury(target.userId, injuryType);
+    const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
+    bot.sendMessage(chatId, `🤕 Критический удар! ${name} получить травму: ${injuryName} (на сутки).`).catch(() => {});
+  }
+}
+
 // Tiered category names [mild, medium, mean] — indexed the same way as getMischiefTier.
 const TARGETED_PHRASE_TIER_CATEGORIES = ['targeted_phrase_mild', 'targeted_phrase_medium', 'targeted_phrase_mean'];
 const TARGETED_ACTION_TIER_CATEGORIES = ['targeted_action_mild', 'targeted_action_medium', 'targeted_action_mean'];
@@ -2785,6 +2829,16 @@ function backgroundTick() {
     ) {
       triggerLustAction(state.chat_id, state.stage, now);
     }
+
+    // Drunk-only autonomous club attack (see triggerDrunkAttack) — separate
+    // cooldown from every other autonomous action, only active while drunk.
+    const drunkAttackIntervalSeconds = getSettingNumber('drunk_attack_interval_minutes') * 60;
+    if (
+      isDrunk(state) &&
+      (!state.last_drunk_attack_at || now - state.last_drunk_attack_at >= drunkAttackIntervalSeconds)
+    ) {
+      triggerDrunkAttack(state.chat_id, now);
+    }
   }
 }
 
@@ -3093,7 +3147,7 @@ const TROLL_HELP_PUBLIC = [
   '/fight — подраться с тролем (⚔️ один обмен ударами за раз: сначала бьёшь ты — тролль может увернуться или потерять здоровье; затем отвечает тролль — если попадёт, теряешь здоровье, а критический удар может дать травму на сутки (рука/нога/голова — блокирует драки, пока не пройдёт); при 0 здоровья тебя вырубает и мутит на 30 минут; лимит попыток в день на человека настраивается админом)',
   '/tease — подразнить тролля (-настроение, +злость)',
   '/boobs — показать тролю сиську (+похоть, реакция зависит от стадии роста)',
-  '/drink — бухать с тролем (🍻 60% — хорошо посидели, +настроение +отношение; 30% — поссорились, -настроение; 5% — тролль дал пиздюлей, 3 удара подряд; 5% — подружились, большой плюс к настроению и отношению); частое бухалово роняет трезвость тролля и рано или поздно вгоняет его в запой на час — весь этот час он максимально злой на всех; если побухать с тролем 5 раз, будучи его врагом — вражда прощается, отношение сбрасывается в 0',
+  '/drink — бухать с тролем (🍻 60% — хорошо посидели, +настроение +отношение; 30% — поссорились, -настроение; 5% — тролль дал пиздюлей, 3 удара подряд; 5% — подружились, большой плюс к настроению и отношению); частое бухалово роняет трезвость тролля и рано или поздно вгоняет его в запой на час — весь этот час он максимально злой на всех и раз в ~20 минут лупит дубинкой случайного участника чата; если побухать с тролем 5 раз, будучи его врагом — вражда прощается, отношение сбрасывается в 0',
   '/teach <фраза> — научить тролля фразе; он потом будет иногда повторять её случайным людям (можно и просто ответить на любое сообщение тролля)',
 ].join('\n');
 
