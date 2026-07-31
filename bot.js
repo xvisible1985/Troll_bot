@@ -531,6 +531,10 @@ const DEFAULT_SETTINGS = {
   // is a known female participant.
   lust_trigger_threshold: '80',
   lust_action_interval_minutes: '60',
+  // Max /fight attempts a single person can make against the troll per
+  // rolling 24h (see getFightAttemptsToday) — same window idiom as
+  // frequent_arguer_window_hours above, just a separate counter.
+  fight_daily_limit: '5',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -1439,6 +1443,17 @@ function resolveTargetedActionCategory(userId, tierCategory) {
   return row && row.gender ? `targeted_action_${row.gender}` : tierCategory;
 }
 
+// Daily cap on /fight attempts per person (fight_daily_limit, default 5) —
+// a rolling 24h window, same idiom as frequent_arguer_window_hours, just a
+// separate counter so tuning one doesn't affect the other.
+function getFightAttemptsToday(userId) {
+  const since = Math.floor(Date.now() / 1000) - 24 * 3600;
+  const row = db.prepare(
+    "SELECT COUNT(*) AS n FROM troll_actions WHERE user_id = ? AND action = 'fight' AND created_at >= ?"
+  ).get(userId, since);
+  return row.n;
+}
+
 // A "frequent arguer" is purely about recent conflict frequency (fights
 // within a rolling window) — deliberately independent of the attitude-based
 // enemy system, since someone can fight a lot in a short burst without ever
@@ -1855,6 +1870,11 @@ async function performFight(chatId, from) {
   const challengerHealth = getUserHealth(from.id);
   if (challengerHealth.health === 0) {
     await bot.sendMessage(chatId, `${actorName(from)}, твоя в отключке, какая драка!`).catch(() => {});
+    return;
+  }
+  const fightLimit = getSettingNumber('fight_daily_limit');
+  if (!isAdminTestChat && getFightAttemptsToday(from.id) >= fightLimit) {
+    await bot.sendMessage(chatId, `${actorName(from)}, на сегодня хватит драк с троллем (лимит ${fightLimit}/день)!`).catch(() => {});
     return;
   }
 
@@ -2920,7 +2940,7 @@ const TROLL_HELP_PUBLIC = [
   '/troll_character — характер тролля (аппетит, игривость, злость, похоть, вредность)',
   '/play — поиграть с тролем (+настроение, +игривость, -злость)',
   '/feed — покормить тролля (+здоровье, +сытость, +настроение; от 90 до 99 сытости — переедает и это растит аппетит; при 100 — кинет еду обратно)',
-  '/fight — подраться с тролем (⚔️ один обмен ударами за раз: сначала бьёшь ты — тролль может увернуться или потерять здоровье; затем отвечает тролль — если попадёт, теряешь здоровье, а критический удар может дать травму на сутки (рука/нога/голова — блокирует драки, пока не пройдёт); при 0 здоровья тебя вырубает и мутит на 30 минут)',
+  '/fight — подраться с тролем (⚔️ один обмен ударами за раз: сначала бьёшь ты — тролль может увернуться или потерять здоровье; затем отвечает тролль — если попадёт, теряешь здоровье, а критический удар может дать травму на сутки (рука/нога/голова — блокирует драки, пока не пройдёт); при 0 здоровья тебя вырубает и мутит на 30 минут; лимит попыток в день на человека настраивается админом)',
   '/tease — подразнить тролля (-настроение, +злость)',
   '/boobs — показать тролю сиську (+похоть, реакция зависит от стадии роста)',
   '/teach <фраза> — научить тролля фразе; он потом будет иногда повторять её случайным людям (можно и просто ответить на любое сообщение тролля)',

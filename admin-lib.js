@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS_KEYS = [
   'regen_sleep_health_per_tick', 'regen_sleep_weight_loss_per_tick', 'regen_sleep_cooldown_hours',
   'frequent_arguer_kick_threshold', 'frequent_arguer_window_hours', 'frequent_arguer_fuck_chance',
   'lust_gain_per_boobs', 'lust_trigger_threshold', 'lust_action_interval_minutes',
+  'fight_daily_limit',
 ];
 
 function getSetting(key) {

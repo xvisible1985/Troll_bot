@@ -71,6 +71,7 @@ const SETTING_LABELS = {
   lust_gain_per_boobs: 'Похотливость (прирост похоти за 🍈)',
   lust_trigger_threshold: 'Порог похоти для действия (>N)',
   lust_action_interval_minutes: 'Интервал похотливого действия, мин',
+  fight_daily_limit: 'Макс. ударов по тролю в день на человека',
 };
 const SETTING_RANGES = {
   naughtiness: [1, 10, 1],
@@ -113,6 +114,7 @@ const SETTING_RANGES = {
   lust_gain_per_boobs: [0, 20, 1],
   lust_trigger_threshold: [0, 100, 5],
   lust_action_interval_minutes: [10, 240, 10],
+  fight_daily_limit: [1, 50, 1],
 };
 
 async function loadStatus() {
