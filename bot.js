@@ -1439,15 +1439,17 @@ function resolveTargetedActionCategory(userId, tierCategory) {
   return row && row.gender ? `targeted_action_${row.gender}` : tierCategory;
 }
 
-// A "frequent arguer" is purely about recent conflict frequency (kicks
+// A "frequent arguer" is purely about recent conflict frequency (fights
 // within a rolling window) — deliberately independent of the attitude-based
-// enemy system, since someone can kick a lot in a short burst without ever
-// dropping attitude all the way to -100.
+// enemy system, since someone can fight a lot in a short burst without ever
+// dropping attitude all the way to -100. Counted via 'fight' since /kick was
+// retired in favor of the Драка mini-game; old historical 'kick' rows simply
+// age out of the rolling window like any other.
 function isFrequentArguer(userId) {
   const windowSeconds = getSettingNumber('frequent_arguer_window_hours') * 3600;
   const since = Math.floor(Date.now() / 1000) - windowSeconds;
   const row = db.prepare(
-    "SELECT COUNT(*) AS n FROM troll_actions WHERE user_id = ? AND action = 'kick' AND created_at >= ?"
+    "SELECT COUNT(*) AS n FROM troll_actions WHERE user_id = ? AND action = 'fight' AND created_at >= ?"
   ).get(userId, since);
   return row.n >= getSettingNumber('frequent_arguer_kick_threshold');
 }
