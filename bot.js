@@ -87,15 +87,19 @@ function getUserInjury(userId) {
 }
 
 // Called only after a troll hit lands with roll >= 90 (see performFight) —
-// always overwrites any existing injury with a fresh one and a fresh 24h
-// timer, no stacking multiple injuries at once.
+// always overwrites any existing injury with a fresh one, no stacking
+// multiple injuries at once. Recovery time is rolled fresh each time (2-24h
+// inclusive) instead of a flat 24h — returns the rolled hours so callers
+// can state it in their own message.
 function applyInjury(userId, injuryType) {
-  if (!tgBotDb) return;
-  const injuredUntil = Math.floor(Date.now() / 1000) + 24 * 3600;
+  if (!tgBotDb) return null;
+  const healHours = Math.floor(Math.random() * 23) + 2;
+  const injuredUntil = Math.floor(Date.now() / 1000) + healHours * 3600;
   tgBotDb.prepare(
     'INSERT INTO injuries (user_id, injury_type, injured_until) VALUES (?, ?, ?) ' +
     'ON CONFLICT(user_id) DO UPDATE SET injury_type = excluded.injury_type, injured_until = excluded.injured_until'
   ).run(userId, injuryType, injuredUntil);
+  return healHours;
 }
 
 // Reads (and lazily creates, at the 100/100 default) a challenger's health
@@ -1983,8 +1987,8 @@ async function performFight(chatId, from) {
     await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (${challengerHealth.health} -> ${humanHealth})`).catch(() => {});
     if (trollSwing.roll >= 90) {
       const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
-      applyInjury(from.id, injuryType);
-      await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова'} (на сутки).`).catch(() => {});
+      const healHours = applyInjury(from.id, injuryType);
+      await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова'} (на ${healHours} ч).`).catch(() => {});
     }
   }
 }
@@ -2174,9 +2178,9 @@ async function performDrink(chatId, from) {
       await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (${before.health} -> ${after})`).catch(() => {});
       if (critRoll >= 90) {
         const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
-        applyInjury(from.id, injuryType);
+        const healHours = applyInjury(from.id, injuryType);
         const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
-        await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryName} (на сутки).`).catch(() => {});
+        await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryName} (на ${healHours} ч).`).catch(() => {});
       }
       if (after === 0) break;
     }
@@ -2477,9 +2481,9 @@ function triggerDrunkAttack(chatId, now) {
   bot.sendMessage(chatId, `💥 Урон ${name}: ${dmg} (${before.health} -> ${after})`).catch(() => {});
   if (swing.roll >= 90) {
     const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
-    applyInjury(target.userId, injuryType);
+    const healHours = applyInjury(target.userId, injuryType);
     const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
-    bot.sendMessage(chatId, `🤕 Критический удар! ${name} получить травму: ${injuryName} (на сутки).`).catch(() => {});
+    bot.sendMessage(chatId, `🤕 Критический удар! ${name} получить травму: ${injuryName} (на ${healHours} ч).`).catch(() => {});
   }
 }
 
@@ -3144,7 +3148,7 @@ const TROLL_HELP_PUBLIC = [
   '/troll_character — характер тролля (аппетит, игривость, злость, похоть, вредность)',
   '/play — поиграть с тролем (+настроение, +игривость, -злость)',
   '/feed — покормить тролля (+здоровье, +сытость, +настроение; от 90 до 99 сытости — переедает и это растит аппетит; при 100 — кинет еду обратно)',
-  '/fight — подраться с тролем (⚔️ один обмен ударами за раз: сначала бьёшь ты — тролль может увернуться или потерять здоровье; затем отвечает тролль — если попадёт, теряешь здоровье, а критический удар может дать травму на сутки (рука/нога/голова — блокирует драки, пока не пройдёт); при 0 здоровья тебя вырубает и мутит на 30 минут; лимит попыток в день на человека настраивается админом)',
+  '/fight — подраться с тролем (⚔️ один обмен ударами за раз: сначала бьёшь ты — тролль может увернуться или потерять здоровье; затем отвечает тролль — если попадёт, теряешь здоровье, а критический удар может дать травму на 2-24 часа (рука/нога/голова — блокирует драки, пока не пройдёт); при 0 здоровья тебя вырубает и мутит на 30 минут; лимит попыток в день на человека настраивается админом)',
   '/tease — подразнить тролля (-настроение, +злость)',
   '/boobs — показать тролю сиську (+похоть, реакция зависит от стадии роста)',
   '/drink — бухать с тролем (🍻 60% — хорошо посидели, +настроение +отношение; 30% — поссорились, -настроение; 5% — тролль дал пиздюлей, 3 удара подряд; 5% — подружились, большой плюс к настроению и отношению); частое бухалово роняет трезвость тролля и рано или поздно вгоняет его в запой на час — весь этот час он максимально злой на всех и раз в ~20 минут лупит дубинкой случайного участника чата; если побухать с тролем 5 раз, будучи его врагом — вражда прощается, отношение сбрасывается в 0',
