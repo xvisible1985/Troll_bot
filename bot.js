@@ -337,6 +337,11 @@ try {
 try {
   db.exec('ALTER TABLE troll_state ADD COLUMN last_drunk_attack_at INTEGER');
 } catch {}
+// Cooldown for "Тролль Фас"'s own periodic attack (see triggerFasAttack) —
+// separate timer from every other autonomous action.
+try {
+  db.exec('ALTER TABLE troll_state ADD COLUMN last_fas_attack_at INTEGER');
+} catch {}
 // Global kick lockout — set when the troll successfully hides after being
 // kicked twice within an hour, back when /kick existed. Left in the schema
 // for history; performFight (which replaced performKick) never reads or
@@ -572,6 +577,10 @@ const DEFAULT_SETTINGS = {
   // same roll/damage/crit-injury rules as Драка's counter-swing, just with
   // a fixed "дубинка" weapon instead of the random pool.
   drunk_attack_interval_minutes: '20',
+  // "Тролль Фас" (see getFasTargetInfo/triggerFasAttack) now also throws an
+  // actual attack at the target every fas_attack_interval_minutes for as
+  // long as the (unchanged, 30-minute) fas window is running.
+  fas_attack_interval_minutes: '5',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -1755,6 +1764,7 @@ function buildAllTimeStatsCaption(state) {
     `💋 Похоть: ${state.char_lust}/100`,
     `🍻 Бухал: ${totalFor('drink')}`,
     `🏏 Дубинкой в запое: ${totalFor('drunk_attack')}`,
+    `🐕 Атаковано по "Фас": ${totalFor('fas_attack')}`,
     `🍺 Трезвость: ${state.char_sobriety}/100`,
     '',
     TROLL_CHARACTER_SUMMARY,
@@ -2314,7 +2324,7 @@ bot.onText(TROLL_FAS_REGEX, async (msg, match) => {
   // from someone it adores.
   adjustAttitude(msg.from.id, getSettingNumber('attitude_fas_delta'));
   const targetName = target.username ? `@${target.username}` : target.firstName;
-  bot.sendMessage(msg.chat.id, `🐕 ${actorName(msg.from)} скомандовал троллю "Фас!" на ${targetName} — 30 минут не будет покоя!`).catch(() => {});
+  bot.sendMessage(msg.chat.id, `🐕 ${actorName(msg.from)} скомандовал троллю "Фас!" на ${targetName} — 30 минут не будет покоя, и раз в ${getSettingNumber('fas_attack_interval_minutes')} мин тролль будет пытаться ударить!`).catch(() => {});
 });
 
 // Buttons on the /troll status card (callback_data-type inline buttons work
@@ -2508,6 +2518,37 @@ function getFasTargetInfo(state) {
   ).get(state.troll_fas_target_user_id);
   if (!row) return null;
   return { entry: { userId: row.user_id, username: row.username, firstName: row.first_name }, attitude: row.attitude };
+}
+
+// On top of getFasTargetInfo's mischief-prioritization above, "Тролль Фас"
+// also throws an actual attack at the target every fas_attack_interval_minutes
+// for as long as the fas window is running — same roll/damage/crit-injury
+// rules as Драка's counter-swing (rollTrollTryResult, 1-20 damage, roll>=90
+// injury), no dodge attempt from the target. Stamps last_fas_attack_at even
+// on a miss so a string of misses doesn't retry every tick.
+function triggerFasAttack(chatId, state, now) {
+  if (!tgBotDb) return;
+  const targetInfo = getFasTargetInfo(state);
+  if (!targetInfo) return;
+  const target = targetInfo.entry;
+  const name = getMentionName(target);
+  db.prepare('UPDATE troll_state SET last_fas_attack_at = ? WHERE id = 1').run(now);
+  logAction(target.userId, target.username || target.firstName, 'fas_attack');
+  const weapon = pick(FIGHT_WEAPONS);
+  const bodyPart = pick(FIGHT_BODY_PARTS);
+  const swing = rollTrollTryResult(`ударить ${name} ${weapon} ${bodyPart}`);
+  bot.sendMessage(chatId, swing.text).catch(() => {});
+  if (!swing.success) return;
+  const dmg = Math.floor(Math.random() * 20) + 1;
+  const before = getUserHealth(target.userId);
+  const after = damageHuman(target.userId, chatId, target.username || target.firstName, dmg);
+  bot.sendMessage(chatId, `💥 Урон ${name}: ${dmg} (${before.health} -> ${after})`).catch(() => {});
+  if (swing.roll >= 90) {
+    const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
+    const healHours = applyInjury(target.userId, injuryType);
+    const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
+    bot.sendMessage(chatId, `🤕 Критический удар! ${name} получить травму: ${injuryName} (на ${healHours} ч).`).catch(() => {});
+  }
 }
 
 function triggerMischief(chatId) {
@@ -2842,6 +2883,17 @@ function backgroundTick() {
       (!state.last_drunk_attack_at || now - state.last_drunk_attack_at >= drunkAttackIntervalSeconds)
     ) {
       triggerDrunkAttack(state.chat_id, now);
+    }
+
+    // "Тролль Фас" periodic attack (see triggerFasAttack) — separate
+    // cooldown from every other autonomous action, only while the (30-
+    // minute) fas window is running.
+    const fasAttackIntervalSeconds = getSettingNumber('fas_attack_interval_minutes') * 60;
+    if (
+      state.troll_fas_until && state.troll_fas_until > now &&
+      (!state.last_fas_attack_at || now - state.last_fas_attack_at >= fasAttackIntervalSeconds)
+    ) {
+      triggerFasAttack(state.chat_id, state, now);
     }
   }
 }
