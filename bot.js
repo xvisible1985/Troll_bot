@@ -60,6 +60,15 @@ try {
       injured_until INTEGER NOT NULL
     )
   `);
+  // Energy: separate resource from health, spent 1-per-swing on /fight and
+  // /kick, regenerating 1 per 20 minutes up to max_energy. Added via ALTER
+  // (not the CREATE TABLE above) since user_health already existed on
+  // deployed installs before this — same idiom as hidden_until in tg-bot.
+  for (const [column, def] of [['energy', 'INTEGER NOT NULL DEFAULT 10'], ['max_energy', 'INTEGER NOT NULL DEFAULT 10'], ['last_energy_regen_at', 'INTEGER']]) {
+    try {
+      tgBotDb.exec(`ALTER TABLE user_health ADD COLUMN ${column} ${def}`);
+    } catch {}
+  }
 } catch (err) {
   console.error('Could not open tg-bot\'s mutes.db — the "smell" feature is disabled. Set TG_BOT_DB_PATH in .env if the path is wrong:', err.message);
 }
@@ -107,7 +116,18 @@ function applyInjury(userId, injuryType) {
 function getUserHealth(userId) {
   if (!tgBotDb) return null;
   tgBotDb.prepare('INSERT OR IGNORE INTO user_health (user_id, health, max_health) VALUES (?, 100, 100)').run(userId);
-  return tgBotDb.prepare('SELECT health, max_health FROM user_health WHERE user_id = ?').get(userId);
+  return tgBotDb.prepare('SELECT health, max_health, energy, max_energy FROM user_health WHERE user_id = ?').get(userId);
+}
+
+// Spends 1 energy for a /fight attempt — same resource tg-bot's /kick draws
+// from (see tg-bot's own consumeEnergy). Returns remaining energy, or null
+// if there wasn't any left (the row is guaranteed to exist by the
+// getUserHealth call above, so null here unambiguously means "no energy").
+function consumeEnergy(userId) {
+  if (!tgBotDb) return null;
+  getUserHealth(userId);
+  const row = tgBotDb.prepare('UPDATE user_health SET energy = energy - 1 WHERE user_id = ? AND energy > 0 RETURNING energy').get(userId);
+  return row ? row.energy : null;
 }
 
 // Applies fight damage, floors at 0, and — if it reaches exactly 0 — mutes
@@ -1949,6 +1969,10 @@ async function performFight(chatId, from) {
     await bot.sendMessage(chatId, `${actorName(from)}, твоя в отключке, какая драка!`).catch(() => {});
     return;
   }
+  if (challengerHealth.energy === 0) {
+    await bot.sendMessage(chatId, `${actorName(from)}, нет энергии на удар — отдохни (⚡ 1 за 20 мин).`).catch(() => {});
+    return;
+  }
   const fightLimit = getSettingNumber('fight_daily_limit');
   if (!isAdminTestChat && getFightAttemptsToday(from.id) >= fightLimit) {
     await bot.sendMessage(chatId, `${actorName(from)}, на сегодня хватит драк с троллем (лимит ${fightLimit}/день)!`).catch(() => {});
@@ -1965,6 +1989,8 @@ async function performFight(chatId, from) {
     await bot.sendMessage(chatId, REGEN_SLEEP_SNORE_REPLY).catch(() => {});
     return;
   }
+
+  consumeEnergy(from.id);
 
   let trollHealth = state.health;
 
@@ -3200,7 +3226,7 @@ const TROLL_HELP_PUBLIC = [
   '/troll_character — характер тролля (аппетит, игривость, злость, похоть, вредность)',
   '/play — поиграть с тролем (+настроение, +игривость, -злость)',
   '/feed — покормить тролля (+здоровье, +сытость, +настроение; от 90 до 99 сытости — переедает и это растит аппетит; при 100 — кинет еду обратно)',
-  '/fight — подраться с тролем (⚔️ один обмен ударами за раз: сначала бьёшь ты — тролль может увернуться или потерять здоровье; затем отвечает тролль — если попадёт, теряешь здоровье, а критический удар может дать травму на 2-24 часа (рука/нога/голова — блокирует драки, пока не пройдёт); при 0 здоровья тебя вырубает и мутит на 30 минут; лимит попыток в день на человека настраивается админом)',
+  '/fight — подраться с тролем (⚔️ один обмен ударами за раз: сначала бьёшь ты — тролль может увернуться или потерять здоровье; затем отвечает тролль — если попадёт, теряешь здоровье, а критический удар может дать травму на 2-24 часа (рука/нога/голова — блокирует драки, пока не пройдёт); при 0 здоровья тебя вырубает и мутит на 30 минут; лимит попыток в день на человека настраивается админом; тратит 1 энергию из 10, восстановление — 1 за 20 мин, смотри /me)',
   '/tease — подразнить тролля (-настроение, +злость)',
   '/boobs — показать тролю сиську (+похоть, реакция зависит от стадии роста)',
   '/drink — бухать с тролем (🍻 60% — хорошо посидели, +настроение +отношение; 30% — поссорились, -настроение; 5% — тролль дал пиздюлей, 3 удара подряд; 5% — подружились, большой плюс к настроению и отношению); частое бухалово роняет трезвость тролля и рано или поздно вгоняет его в запой на час — весь этот час он максимально злой на всех и раз в ~20 минут лупит дубинкой случайного участника чата; если побухать с тролем 5 раз, будучи его врагом — вражда прощается, отношение сбрасывается в 0',
