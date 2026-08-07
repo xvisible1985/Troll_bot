@@ -23,7 +23,7 @@ const DEFAULT_SETTINGS_KEYS = [
   'mood_drink_good_delta', 'attitude_drink_good_delta', 'mood_drink_bad_delta',
   'mood_drink_friend_delta', 'attitude_drink_friend_delta',
   'sobriety_loss_per_drink', 'sobriety_drunk_threshold', 'drunk_duration_minutes',
-  'drunk_attack_interval_minutes', 'fas_attack_interval_minutes', 'energy_regen_minutes',
+  'drunk_attack_interval_minutes', 'energy_regen_minutes',
 ];
 
 function getSetting(key) {

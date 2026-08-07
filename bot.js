@@ -608,10 +608,6 @@ const DEFAULT_SETTINGS = {
   // same roll/damage/crit-injury rules as Драка's counter-swing, just with
   // a fixed "дубинка" weapon instead of the random pool.
   drunk_attack_interval_minutes: '20',
-  // "Тролль Фас" (see getFasTargetInfo/triggerFasAttack) now also throws an
-  // actual attack at the target every fas_attack_interval_minutes for as
-  // long as the (unchanged, 30-minute) fas window is running.
-  fas_attack_interval_minutes: '5',
   // Troll's own energy regen (see spendTrollEnergy) — +1 every N minutes,
   // capped at max_energy, shared by every autonomous attack.
   energy_regen_minutes: '20',
@@ -2378,7 +2374,7 @@ bot.onText(TROLL_FAS_REGEX, async (msg, match) => {
   // from someone it adores.
   adjustAttitude(msg.from.id, getSettingNumber('attitude_fas_delta'));
   const targetName = target.username ? `@${target.username}` : target.firstName;
-  bot.sendMessage(msg.chat.id, `🐕 ${actorName(msg.from)} скомандовал троллю "Фас!" на ${targetName} — 30 минут не будет покоя, и раз в ${getSettingNumber('fas_attack_interval_minutes')} мин тролль будет пытаться ударить!`).catch(() => {});
+  bot.sendMessage(msg.chat.id, `🐕 ${actorName(msg.from)} скомандовал троллю "Фас!" на ${targetName} — 30 минут не будет покоя, тролль будет бить раз в минуту, пока не кончится энергия!`).catch(() => {});
 });
 
 // Buttons on the /troll status card (callback_data-type inline buttons work
@@ -2575,15 +2571,20 @@ function getFasTargetInfo(state) {
 }
 
 // On top of getFasTargetInfo's mischief-prioritization above, "Тролль Фас"
-// also throws an actual attack at the target every fas_attack_interval_minutes
-// for as long as the fas window is running — same roll/damage/crit-injury
-// rules as Драка's counter-swing (rollTrollTryResult, 1-20 damage, roll>=90
-// injury), no dodge attempt from the target. Stamps last_fas_attack_at even
-// on a miss so a string of misses doesn't retry every tick.
+// also throws an actual attack at the target every minute (fixed cadence,
+// gated by spendTrollEnergy) for as long as the fas window is running —
+// same roll/damage/crit-injury rules as Драка's counter-swing
+// (rollTrollTryResult, 1-20 damage, roll>=90 injury), no dodge attempt from
+// the target. Stamps last_fas_attack_at even on a miss so a string of
+// misses doesn't retry every tick.
 function triggerFasAttack(chatId, state, now) {
   if (!tgBotDb) return;
   const targetInfo = getFasTargetInfo(state);
   if (!targetInfo) return;
+  // No energy: this minute's attack is skipped, same "quietly retry next
+  // tick" idiom as a missing target — the order itself keeps running until
+  // troll_fas_until expires.
+  if (spendTrollEnergy() === null) return;
   const target = targetInfo.entry;
   const name = getMentionName(target);
   db.prepare('UPDATE troll_state SET last_fas_attack_at = ? WHERE id = 1').run(now);
@@ -2774,7 +2775,11 @@ function isNightNow() {
   return hour >= start || hour < end;
 }
 
-const BACKGROUND_TICK_MS = 5 * 60 * 1000;
+// Dropped from 5 minutes so "Тролль Фас" (see triggerFasAttack) can land a
+// real attack every minute — every other timer below already gates itself
+// with its own now-vs-lastAt check, so ticking more often just makes those
+// more precise, it doesn't change their cadence.
+const BACKGROUND_TICK_MS = 60 * 1000;
 
 // Total regen-sleep ticks in a full nap, e.g. 60min/10min = 6.
 function regenSleepTotalTicks() {
@@ -2947,13 +2952,13 @@ function backgroundTick() {
       triggerDrunkAttack(state.chat_id, now);
     }
 
-    // "Тролль Фас" periodic attack (see triggerFasAttack) — separate
-    // cooldown from every other autonomous action, only while the (30-
-    // minute) fas window is running.
-    const fasAttackIntervalSeconds = getSettingNumber('fas_attack_interval_minutes') * 60;
+    // "Тролль Фас" periodic attack (see triggerFasAttack) — fixed 1-minute
+    // cadence (no longer a tunable setting), gated by the troll's own
+    // energy inside triggerFasAttack itself, only while the (30-minute) fas
+    // window is running.
     if (
       state.troll_fas_until && state.troll_fas_until > now &&
-      (!state.last_fas_attack_at || now - state.last_fas_attack_at >= fasAttackIntervalSeconds)
+      (!state.last_fas_attack_at || now - state.last_fas_attack_at >= 60)
     ) {
       triggerFasAttack(state.chat_id, state, now);
     }
