@@ -555,7 +555,7 @@ const DEFAULT_SETTINGS = {
   attitude_escalation_threshold: '-30',
   satiety_decay_per_hour: '4',
   satiety_feed_gain: '10',
-  satiety_suckle_gain: '20',
+  satiety_foodsteal_gain: '20',
   hunger_action_interval_minutes: '30',
   attitude_feed_reject_delta: '-10',
   learned_phrase_reply_chance: '8',
@@ -730,16 +730,6 @@ const PHRASE_SEED = {
     'Моя кушать хотеть! Кто-нибудь покормить моя, а?',
     'Моя живот урчать совсем... дать моя поесть!',
     'Твоя есть еда? Моя очень-очень кушать хотеть!',
-  ],
-  hunger_grab_action: [
-    'вцепиться в сиську {user} от голод',
-    'впиться в грудь {user}, требуя еда',
-    'вцепиться в {user}, искать еда',
-  ],
-  hunger_suckle_action: [
-    'пососать молоко у {user}',
-    'высосать молоко из {user}',
-    'напиться молоко у {user}',
   ],
   self_eat: [
     'Моя найти вкусный корешок под мостом и скушать сама!',
@@ -1219,6 +1209,18 @@ const LUST_ACTION_PHRASES = [
   'покраснеть, глядя на {user}, и уединиться под мостом на минутку',
 ];
 
+// Grown-troll replacement for the old "grab a breast and suckle" hunger
+// action (see triggerFoodSteal) — plain Russian, third-person, asterisk-
+// wrapped like the mischief/lust pools above. Narrates the closing line
+// after at least one of the 3 swings in the sequence lands.
+const FOOD_STEAL_ACTION_PHRASES = [
+  'вырвать еду прямо из рук {user} и заглотить, не жуя',
+  'силой отжать перекус у {user}',
+  'выхватить кусок у {user} и умять его в один присест',
+  'отобрать еду у {user}, не оставив и крошки',
+  'зажать {user} у моста и отжать всю еду подчистую',
+];
+
 // /boobs turn-away for a known male caller (see performBoobs) — unknown
 // gender still goes through normally, only an explicit male match rejects.
 const BOOBS_MALE_REJECT_PHRASES = [
@@ -1271,6 +1273,7 @@ seedPhrasesIfMissing('targeted_action_female_young', TARGETED_ACTION_FEMALE_YOUN
 seedPhrasesIfMissing('mischief_mild_young', MISCHIEF_MILD_YOUNG_PHRASES);
 seedPhrasesIfMissing('mischief_medium_young', MISCHIEF_MEDIUM_YOUNG_PHRASES);
 seedPhrasesIfMissing('lust_action', LUST_ACTION_PHRASES);
+seedPhrasesIfMissing('food_steal_action', FOOD_STEAL_ACTION_PHRASES);
 
 console.log('Тролль-бот: схема готова.');
 
@@ -1801,6 +1804,7 @@ function buildAllTimeStatsCaption(state) {
     `💩 Покакал: ${totalFor('poop')}`,
     `💦 Пописал: ${totalFor('pee')}`,
     `🍽️ Поел сам: ${totalFor('self_eat')}`,
+    `🥊 Отжал еду силой: ${totalFor('food_steal')}`,
     `😳 Не сдержался от похоти: ${totalFor('lust_action')}`,
     `💋 Похоть: ${state.char_lust}/100`,
     `🍻 Бухал: ${totalFor('drink')}`,
@@ -2673,29 +2677,48 @@ function triggerBegging(chatId, stage) {
 // Reuses pickMischiefTarget/getMentionName — same weighted "recent
 // participant, more likely if disliked" targeting as regular targeted
 // mischief. Falls back to begging if no one's spoken recently to grab at.
-// Two chained rolls: grabbing on, then (only if that succeeds) actually
-// suckling — only the second roll's success restores satiety, so a failed
-// grab never pays off.
-async function triggerHungryGrab(chatId, stage) {
+// Grown-troll replacement for the old "grab a breast and suckle" action:
+// up to 3 real swings (same weapon/bodyPart/roll/damage/crit shape as
+// triggerFasAttack's single swing), each spending 1 troll energy first —
+// running out mid-sequence just ends the loop early, already-landed hits
+// still count. If at least one swing landed, a closing message narrates
+// the troll stealing food from the target and satiety is restored.
+async function triggerFoodSteal(chatId, stage) {
   if (recentMessages.length === 0) return triggerBegging(chatId, stage);
   const targetInfo = pickMischiefTarget();
   // Also null if everyone who's spoken recently is mama (see
   // pickMischiefTarget) — same begging fallback as nobody having spoken at all.
   if (!targetInfo) return triggerBegging(chatId, stage);
-  const target = getMentionName(targetInfo.entry);
+  const target = targetInfo.entry;
+  const name = getMentionName(target);
 
-  const grabTemplate = pickPhraseForStage('hunger_grab_action', stage, 'вцепиться в сиську {user} от голод');
-  const grabAction = grabTemplate.replace(/\{user\}/g, target);
-  const grabRoll = rollTrollTryResult(grabAction);
-  await bot.sendMessage(chatId, grabRoll.text).catch(() => {});
-  if (!grabRoll.success) return;
+  logAction(target.userId, target.username || target.firstName, 'food_steal');
 
-  const suckleTemplate = pickPhraseForStage('hunger_suckle_action', stage, 'пососать молоко у {user}');
-  const suckleAction = suckleTemplate.replace(/\{user\}/g, target);
-  const suckleRoll = rollTrollTryResult(suckleAction);
-  await bot.sendMessage(chatId, suckleRoll.text).catch(() => {});
-  if (suckleRoll.success) {
-    const satietyGain = getSettingNumber('satiety_suckle_gain');
+  let anyHit = false;
+  for (let i = 0; i < 3; i++) {
+    if (spendTrollEnergy() === null) break;
+    const weapon = pick(FIGHT_WEAPONS);
+    const bodyPart = pick(FIGHT_BODY_PARTS);
+    const swing = rollTrollTryResult(`ударить ${name} ${weapon} ${bodyPart}`);
+    await bot.sendMessage(chatId, swing.text).catch(() => {});
+    if (!swing.success) continue;
+    anyHit = true;
+    const dmg = Math.floor(Math.random() * 20) + 1;
+    const before = getUserHealth(target.userId);
+    const after = damageHuman(target.userId, chatId, target.username || target.firstName, dmg);
+    await bot.sendMessage(chatId, `💥 Урон ${name}: ${dmg} (${before.health} -> ${after})`).catch(() => {});
+    if (swing.roll >= 90) {
+      const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
+      const healHours = applyInjury(target.userId, injuryType);
+      const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
+      await bot.sendMessage(chatId, `🤕 Критический удар! ${name} получить травму: ${injuryName} (на ${healHours} ч).`).catch(() => {});
+    }
+  }
+
+  if (anyHit) {
+    const stealTemplate = pickPhraseForStage('food_steal_action', stage, 'отжать еду у {user}');
+    await bot.sendMessage(chatId, `*${stealTemplate.replace(/\{user\}/g, name)}*`).catch(() => {});
+    const satietyGain = getSettingNumber('satiety_foodsteal_gain');
     db.prepare('UPDATE troll_state SET satiety = MIN(100, satiety + ?) WHERE id = 1').run(satietyGain);
   }
 }
@@ -2905,7 +2928,7 @@ function backgroundTick() {
     const hungerIntervalSeconds = getSettingNumber('hunger_action_interval_minutes') * 60;
     if (!state.last_hunger_action_at || now - state.last_hunger_action_at >= hungerIntervalSeconds) {
       if (state.satiety < 30) {
-        triggerHungryGrab(state.chat_id, state.stage);
+        triggerFoodSteal(state.chat_id, state.stage);
         db.prepare('UPDATE troll_state SET last_hunger_action_at = ? WHERE id = 1').run(now);
       } else if (state.satiety < 50) {
         triggerBegging(state.chat_id, state.stage);

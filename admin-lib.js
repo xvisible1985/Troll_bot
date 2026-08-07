@@ -10,7 +10,7 @@ const DEFAULT_SETTINGS_KEYS = [
   'health_regen_baby', 'health_regen_young', 'health_regen_adult', 'health_regen_old',
   'paused', 'attitude_play_delta', 'attitude_feed_delta',
   'attitude_kick_delta', 'attitude_escalation_threshold',
-  'satiety_decay_per_hour', 'satiety_feed_gain', 'satiety_suckle_gain', 'hunger_action_interval_minutes',
+  'satiety_decay_per_hour', 'satiety_feed_gain', 'satiety_foodsteal_gain', 'hunger_action_interval_minutes',
   'attitude_feed_reject_delta', 'learned_phrase_reply_chance',
   'weight_gain_per_feed', 'weight_loss_per_poop', 'weight_loss_per_pee',
   'eat_action_interval_minutes', 'poop_action_interval_minutes', 'pee_action_interval_minutes',
