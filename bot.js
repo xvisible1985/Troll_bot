@@ -2374,7 +2374,7 @@ bot.onText(TROLL_FAS_REGEX, async (msg, match) => {
   // from someone it adores.
   adjustAttitude(msg.from.id, getSettingNumber('attitude_fas_delta'));
   const targetName = target.username ? `@${target.username}` : target.firstName;
-  bot.sendMessage(msg.chat.id, `🐕 ${actorName(msg.from)} скомандовал троллю "Фас!" на ${targetName} — 30 минут не будет покоя, тролль будет бить раз в минуту, пока не кончится энергия!`).catch(() => {});
+  bot.sendMessage(msg.chat.id, `🐕 ${actorName(msg.from)} скомандовал троллю "Фас!" на ${targetName} — 30 минут не будет покоя, тролль будет бить раз в минуту, пока хватает энергии!`).catch(() => {});
 });
 
 // Buttons on the /troll status card (callback_data-type inline buttons work
@@ -2787,7 +2787,7 @@ function regenSleepTotalTicks() {
 }
 
 // Advances (or finishes) an in-progress regen sleep. Runs on the same
-// 5-minute cadence as the rest of backgroundTick — floor(elapsed/tickLength)
+// cadence as the rest of backgroundTick — floor(elapsed/tickLength)
 // is resilient to that cadence not lining up exactly with the tick length,
 // so ticks never get double-applied or skipped even if the two drift out of
 // phase with each other.
