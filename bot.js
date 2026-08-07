@@ -69,9 +69,35 @@ try {
       tgBotDb.exec(`ALTER TABLE user_health ADD COLUMN ${column} ${def}`);
     } catch {}
   }
+  // Real, stealable weapons (see WEAPON_DEFS below and, in this same repo,
+  // docs/superpowers/specs/2026-08-07-real-weapons-design.md) — same
+  // dual-create idiom as user_health/injuries above, tg-bot creates this
+  // table too so deploy order between the two bots doesn't matter.
+  // owner_type 'troll' rows have owner_user_id/owner_username NULL — there's
+  // only ever one troll, so no id is needed to identify it.
+  tgBotDb.exec(`
+    CREATE TABLE IF NOT EXISTS weapon_ownership (
+      weapon_key TEXT PRIMARY KEY,
+      seed_username TEXT,
+      owner_type TEXT NOT NULL DEFAULT 'human',
+      owner_user_id INTEGER,
+      owner_username TEXT
+    )
+  `);
+  tgBotDb.prepare("INSERT OR IGNORE INTO weapon_ownership (weapon_key, seed_username, owner_type, owner_user_id, owner_username) VALUES ('bat', 'Anoki5', 'human', NULL, NULL)").run();
+  tgBotDb.prepare("INSERT OR IGNORE INTO weapon_ownership (weapon_key, seed_username, owner_type, owner_user_id, owner_username) VALUES ('axe', 'InternelFun', 'human', NULL, NULL)").run();
 } catch (err) {
   console.error('Could not open tg-bot\'s mutes.db — the "smell" feature is disabled. Set TG_BOT_DB_PATH in .env if the path is wrong:', err.message);
 }
+
+// Static per-weapon flavor/multiplier for the two real, stealable weapons
+// (see weapon_ownership above for who currently holds them). Duplicated
+// identically in tg-bot's bot.js — same idiom as FIGHT_WEAPONS/PVP_WEAPONS
+// already being duplicated per-repo.
+const WEAPON_DEFS = {
+  bat: { name: 'бита', instrumental: 'битой', accusative: 'биту', multiplier: 1.5, emoji: '🏏' },
+  axe: { name: 'топор', instrumental: 'топором', accusative: 'топор', multiplier: 2.5, emoji: '🪓' },
+};
 
 function markSmelly(userId, durationSeconds, reason) {
   if (!tgBotDb) return;
@@ -146,6 +172,54 @@ function damageHuman(userId, chatId, username, damage) {
     ).run(userId, chatId, username, 'драка', expiresAt);
   }
   return row.health;
+}
+
+// Weapon keys currently held by a given owner — 0, 1, or 2 rows (a holder
+// can end up with both over time via maybeStealWeapon). ownerUserId is
+// ignored for ownerType 'troll'. Returns [] if tgBotDb is down, same
+// fail-safe shape as the other cross-process helpers above.
+function getWeaponsFor(ownerType, ownerUserId) {
+  if (!tgBotDb) return [];
+  return ownerType === 'troll'
+    ? tgBotDb.prepare("SELECT weapon_key FROM weapon_ownership WHERE owner_type = 'troll'").all()
+    : tgBotDb.prepare("SELECT weapon_key FROM weapon_ownership WHERE owner_type = 'human' AND owner_user_id = ?").all(ownerUserId);
+}
+
+// Picks the weapon for one swing: a real one if the attacker holds any
+// (random pick if they hold both), otherwise a random cosmetic word from
+// fallbackWeapons with multiplier 1 — today's flavor-only behavior,
+// unchanged for anyone who's never touched a real weapon. Returns
+// { key, text, multiplier } — key is null for the cosmetic fallback.
+function pickWeaponForAttacker(ownerType, ownerUserId, fallbackWeapons) {
+  const owned = getWeaponsFor(ownerType, ownerUserId);
+  if (owned.length > 0) {
+    const key = pick(owned.map(row => row.weapon_key));
+    const def = WEAPON_DEFS[key];
+    return { key, text: def.instrumental, multiplier: def.multiplier };
+  }
+  return { key: null, text: pick(fallbackWeapons), multiplier: 1 };
+}
+
+// 5% chance to steal the target's currently-held real weapon after a crit
+// lands on them — call this right after every applyInjury(...) against a
+// human (four call sites in this file: performFight's troll counter-swing,
+// triggerFasAttack, triggerDrunkAttack, triggerFoodSteal). attacker is
+// {type:'human', userId, username, firstName} or {type:'troll'} — in this
+// file it's always {type:'troll'}, since every crit troll-bot itself
+// throws comes from the troll. Returns the stolen weapon_key, or null if
+// nothing was stolen (missed the 5% roll, tgBotDb is down, or the target
+// didn't hold a real weapon).
+function maybeStealWeapon(targetUserId, attacker) {
+  if (!tgBotDb) return null;
+  if (Math.random() >= 0.05) return null;
+  const row = tgBotDb.prepare("SELECT weapon_key FROM weapon_ownership WHERE owner_type = 'human' AND owner_user_id = ?").get(targetUserId);
+  if (!row) return null;
+  if (attacker.type === 'troll') {
+    tgBotDb.prepare("UPDATE weapon_ownership SET owner_type = 'troll', owner_user_id = NULL, owner_username = NULL WHERE weapon_key = ?").run(row.weapon_key);
+  } else {
+    tgBotDb.prepare("UPDATE weapon_ownership SET owner_type = 'human', owner_user_id = ?, owner_username = ? WHERE weapon_key = ?").run(attacker.userId, attacker.username || attacker.firstName, row.weapon_key);
+  }
+  return row.weapon_key;
 }
 
 let agent;
