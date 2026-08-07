@@ -82,6 +82,7 @@ const SETTING_LABELS = {
   drunk_duration_minutes: 'Бухалово: длительность запоя, мин',
   drunk_attack_interval_minutes: 'Бухалово: интервал удара дубинкой в запое, мин',
   fas_attack_interval_minutes: 'Тролль Фас: интервал попыток удара, мин',
+  energy_regen_minutes: 'Энергия тролля: восстановление 1 ед. раз в N мин',
 };
 const SETTING_RANGES = {
   naughtiness: [1, 10, 1],
@@ -135,6 +136,7 @@ const SETTING_RANGES = {
   drunk_duration_minutes: [10, 240, 10],
   drunk_attack_interval_minutes: [5, 120, 5],
   fas_attack_interval_minutes: [1, 30, 1],
+  energy_regen_minutes: [5, 60, 5],
 };
 
 async function loadStatus() {

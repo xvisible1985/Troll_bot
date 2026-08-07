@@ -386,6 +386,17 @@ for (const column of ['troll_fas_until', 'troll_fas_target_user_id']) {
     db.exec(`ALTER TABLE troll_state ADD COLUMN ${column} INTEGER`);
   } catch {}
 }
+// Troll's own energy — the shared resource spent by every autonomous
+// attack it throws (Тролль Фас, drunk club, food-steal — see
+// spendTrollEnergy below and triggerFasAttack/triggerDrunkAttack/
+// triggerFoodSteal). Regenerates 1 per energy_regen_minutes independent of
+// paused/silenced (see backgroundTick), same idiom as the hourly health
+// tick.
+for (const [column, def] of [['energy', 'INTEGER NOT NULL DEFAULT 20'], ['max_energy', 'INTEGER NOT NULL DEFAULT 20'], ['last_energy_regen_at', 'INTEGER']]) {
+  try {
+    db.exec(`ALTER TABLE troll_state ADD COLUMN ${column} ${def}`);
+  } catch {}
+}
 // Whoever is FIRST to reach attitude 100 becomes "mama" — permanent once
 // set (see checkMamaPromotion), not re-evaluated if their attitude later
 // drops back down.
@@ -601,6 +612,9 @@ const DEFAULT_SETTINGS = {
   // actual attack at the target every fas_attack_interval_minutes for as
   // long as the (unchanged, 30-minute) fas window is running.
   fas_attack_interval_minutes: '5',
+  // Troll's own energy regen (see spendTrollEnergy) — +1 every N minutes,
+  // capped at max_energy, shared by every autonomous attack.
+  energy_regen_minutes: '20',
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare('INSERT OR IGNORE INTO troll_settings (key, value) VALUES (?, ?)').run(key, value);
@@ -1364,6 +1378,17 @@ function isDrunk(state) {
 
 function logAction(userId, username, action) {
   db.prepare('INSERT INTO troll_actions (user_id, username, action) VALUES (?, ?, ?)').run(userId, username, action);
+}
+
+// Shared energy pool for every autonomous attack the troll throws (Тролль
+// Фас, drunk club, food-steal) — 1 spent per swing, regenerating on its own
+// tick in backgroundTick. Same null-means-empty shape as tg-bot's own
+// player-side consumeEnergy.
+function spendTrollEnergy() {
+  const row = db.prepare(
+    'UPDATE troll_state SET energy = energy - 1 WHERE id = 1 AND energy > 0 RETURNING energy'
+  ).get();
+  return row ? row.energy : null;
 }
 
 // --- Relationships ---
@@ -2824,6 +2849,14 @@ function backgroundTick() {
     } else {
       db.prepare('UPDATE troll_state SET health = MIN(max_health, health + ?), satiety = MAX(0, satiety - ?), last_health_tick_at = ? WHERE id = 1').run(regen, satietyDecay, now);
     }
+  }
+
+  // Troll's own energy regen (see spendTrollEnergy) — independent of
+  // paused/silenced, same rationale as the health tick above: this is the
+  // troll's own vitality, not a shalость that can be paused.
+  const energyRegenSeconds = getSettingNumber('energy_regen_minutes') * 60;
+  if (!state.last_energy_regen_at || now - state.last_energy_regen_at >= energyRegenSeconds) {
+    db.prepare('UPDATE troll_state SET energy = MIN(max_energy, energy + 1), last_energy_regen_at = ? WHERE id = 1').run(now);
   }
 
   // Regen sleep: below the health threshold, the troll retreats for a fixed
