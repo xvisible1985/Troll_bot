@@ -2692,11 +2692,15 @@ async function triggerFoodSteal(chatId, stage) {
   const target = targetInfo.entry;
   const name = getMentionName(target);
 
-  logAction(target.userId, target.username || target.firstName, 'food_steal');
-
   let anyHit = false;
+  let logged = false;
   for (let i = 0; i < 3; i++) {
     if (spendTrollEnergy() === null) break;
+    if (!logged) {
+      logAction(target.userId, target.username || target.firstName, 'food_steal');
+      logged = true;
+    }
+    if (getUserHealth(target.userId).health === 0) break;
     const weapon = pick(FIGHT_WEAPONS);
     const bodyPart = pick(FIGHT_BODY_PARTS);
     const swing = rollTrollTryResult(`ударить ${name} ${weapon} ${bodyPart}`);
