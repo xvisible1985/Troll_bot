@@ -2096,13 +2096,15 @@ async function performFight(chatId, from) {
 
   let trollHealth = state.health;
 
-  // Human's swing at the troll.
-  const humanWeapon = pick(FIGHT_WEAPONS);
+  // Human's swing at the troll — a real weapon (if held) both replaces the
+  // random flavor word and scales the damage below; falls back to the
+  // normal cosmetic FIGHT_WEAPONS pick (multiplier 1) otherwise.
+  const humanWeapon = pickWeaponForAttacker('human', from.id, FIGHT_WEAPONS);
   const humanTarget = pick(FIGHT_BODY_PARTS);
-  const humanSwing = rollTrollTryResult(`увернуться от удара ${actorName(from)} ${humanWeapon} ${humanTarget}`);
+  const humanSwing = rollTrollTryResult(`увернуться от удара ${actorName(from)} ${humanWeapon.text} ${humanTarget}`);
   await bot.sendMessage(chatId, humanSwing.text).catch(() => {});
   if (!humanSwing.success) {
-    const dmg = Math.floor(Math.random() * 10) + 1;
+    const dmg = Math.round((Math.floor(Math.random() * 10) + 1) * humanWeapon.multiplier);
     db.prepare('UPDATE troll_state SET health = MAX(0, health - ?) WHERE id = 1').run(dmg);
     trollHealth = db.prepare('SELECT health FROM troll_state WHERE id = 1').get().health;
     await bot.sendMessage(chatId, `💥 Урон троллю: ${dmg} (${state.health} -> ${trollHealth})`).catch(() => {});
@@ -2114,19 +2116,26 @@ async function performFight(chatId, from) {
   // to 0 — nothing left to swing back with.
   if (trollHealth === 0) return;
 
-  // Troll's counter-swing at the human.
-  const trollWeapon = pick(FIGHT_WEAPONS);
+  // Troll's counter-swing at the human — same real-weapon substitution as
+  // above, using whatever the troll itself currently holds (see
+  // maybeStealWeapon below for how it gets one in the first place).
+  const trollWeapon = pickWeaponForAttacker('troll', null, FIGHT_WEAPONS);
   const trollTarget = pick(FIGHT_BODY_PARTS);
-  const trollSwing = rollTrollTryResult(`ударить ${actorName(from)} ${trollWeapon} ${trollTarget}`);
+  const trollSwing = rollTrollTryResult(`ударить ${actorName(from)} ${trollWeapon.text} ${trollTarget}`);
   await bot.sendMessage(chatId, trollSwing.text).catch(() => {});
   if (trollSwing.success) {
-    const dmg = Math.floor(Math.random() * 20) + 1;
+    const dmg = Math.round((Math.floor(Math.random() * 20) + 1) * trollWeapon.multiplier);
     const humanHealth = damageHuman(from.id, chatId, from.username || from.first_name, dmg);
     await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (${challengerHealth.health} -> ${humanHealth})`).catch(() => {});
     if (trollSwing.roll >= 90) {
       const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
       const healHours = applyInjury(from.id, injuryType);
       await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова'} (на ${healHours} ч).`).catch(() => {});
+      const stolenKey = maybeStealWeapon(from.id, { type: 'troll' });
+      if (stolenKey) {
+        const stolenDef = WEAPON_DEFS[stolenKey];
+        await bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${actorName(from)} и теперь бьёт ${stolenDef.instrumental} сам!`).catch(() => {});
+      }
     }
   }
 }
