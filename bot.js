@@ -2538,6 +2538,11 @@ function triggerDrunkAttack(chatId, now) {
   db.prepare('UPDATE troll_state SET last_drunk_attack_at = ? WHERE id = 1').run(now);
   logAction(target.userId, target.username || target.firstName, 'drunk_attack');
   bot.sendMessage(chatId, `🥴 Бухому троллю не понравилось, как на него посмотрел ${name}!`).catch(() => {});
+  // Already knocked out: skip the swing entirely rather than re-landing a
+  // hit on a downed target — damageHuman() can't tell "just reached 0" from
+  // "already at 0, hit again", so a real swing here would silently re-mute
+  // them for another 30 minutes (same guard as triggerFoodSteal).
+  if (getUserHealth(target.userId).health === 0) return;
   const bodyPart = pick(FIGHT_BODY_PARTS);
   const swing = rollTrollTryResult(`ударить ${name} дубинкой ${bodyPart}`);
   bot.sendMessage(chatId, swing.text).catch(() => {});
@@ -2596,6 +2601,12 @@ function triggerFasAttack(chatId, state, now) {
   const name = getMentionName(target);
   db.prepare('UPDATE troll_state SET last_fas_attack_at = ? WHERE id = 1').run(now);
   logAction(target.userId, target.username || target.firstName, 'fas_attack');
+  // Already knocked out: skip the swing entirely rather than re-landing a
+  // hit on a downed target — damageHuman() can't tell "just reached 0" from
+  // "already at 0, hit again", so a real swing here would silently re-mute
+  // them for another 30 minutes, well past the Фас order's own window (same
+  // guard as triggerFoodSteal).
+  if (getUserHealth(target.userId).health === 0) return;
   const weapon = pick(FIGHT_WEAPONS);
   const bodyPart = pick(FIGHT_BODY_PARTS);
   const swing = rollTrollTryResult(`ударить ${name} ${weapon} ${bodyPart}`);
@@ -2683,12 +2694,26 @@ function triggerBegging(chatId, stage) {
 // running out mid-sequence just ends the loop early, already-landed hits
 // still count. If at least one swing landed, a closing message narrates
 // the troll stealing food from the target and satiety is restored.
-async function triggerFoodSteal(chatId, stage) {
-  if (recentMessages.length === 0) return triggerBegging(chatId, stage);
+async function triggerFoodSteal(chatId, stage, now) {
+  // Stamps last_hunger_action_at itself (unlike the old triggerHungryGrab,
+  // whose cooldown was stamped unconditionally by the backgroundTick call
+  // site) so that an empty energy pool — a true no-op, no message sent at
+  // all — doesn't burn the shared hunger cooldown for a full interval the
+  // way it used to; it now quietly retries next tick, same idiom as
+  // triggerFasAttack/triggerDrunkAttack under the same energy pressure. A
+  // begging fallback, or any actually-attempted swing, still stamps it,
+  // since those are real, player-visible events.
+  if (recentMessages.length === 0) {
+    db.prepare('UPDATE troll_state SET last_hunger_action_at = ? WHERE id = 1').run(now);
+    return triggerBegging(chatId, stage);
+  }
   const targetInfo = pickMischiefTarget();
   // Also null if everyone who's spoken recently is mama (see
   // pickMischiefTarget) — same begging fallback as nobody having spoken at all.
-  if (!targetInfo) return triggerBegging(chatId, stage);
+  if (!targetInfo) {
+    db.prepare('UPDATE troll_state SET last_hunger_action_at = ? WHERE id = 1').run(now);
+    return triggerBegging(chatId, stage);
+  }
   const target = targetInfo.entry;
   const name = getMentionName(target);
 
@@ -2698,6 +2723,7 @@ async function triggerFoodSteal(chatId, stage) {
     if (spendTrollEnergy() === null) break;
     if (!logged) {
       logAction(target.userId, target.username || target.firstName, 'food_steal');
+      db.prepare('UPDATE troll_state SET last_hunger_action_at = ? WHERE id = 1').run(now);
       logged = true;
     }
     if (getUserHealth(target.userId).health === 0) break;
@@ -2932,8 +2958,10 @@ function backgroundTick() {
     const hungerIntervalSeconds = getSettingNumber('hunger_action_interval_minutes') * 60;
     if (!state.last_hunger_action_at || now - state.last_hunger_action_at >= hungerIntervalSeconds) {
       if (state.satiety < 30) {
-        triggerFoodSteal(state.chat_id, state.stage);
-        db.prepare('UPDATE troll_state SET last_hunger_action_at = ? WHERE id = 1').run(now);
+        // triggerFoodSteal stamps last_hunger_action_at itself, only when
+        // something actually happened (see its own comment) — an empty
+        // energy pool must NOT burn this cooldown, unlike before.
+        triggerFoodSteal(state.chat_id, state.stage, now);
       } else if (state.satiety < 50) {
         triggerBegging(state.chat_id, state.stage);
         db.prepare('UPDATE troll_state SET last_hunger_action_at = ? WHERE id = 1').run(now);
