@@ -2526,6 +2526,9 @@ function triggerDrunkAttack(chatId, now) {
   if (!tgBotDb) return;
   const targetInfo = pickMischiefTarget();
   if (!targetInfo) return;
+  // No energy: skip this tick's club swing, same "quietly retry next tick"
+  // idiom as a missing target (see triggerFasAttack).
+  if (spendTrollEnergy() === null) return;
   const target = targetInfo.entry;
   const name = getMentionName(target);
   db.prepare('UPDATE troll_state SET last_drunk_attack_at = ? WHERE id = 1').run(now);
