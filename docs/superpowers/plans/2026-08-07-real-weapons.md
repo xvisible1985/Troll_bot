@@ -22,7 +22,7 @@
 - Modify: `c:\Users\123\Projects\tg-bot\bot.js:834-847` (helpers, right after `checkPvpCooldown`)
 - Modify: `c:\Users\123\Projects\tg-bot\bot.js:1452-1458` (lazy owner-username resolution)
 
-- [ ] **Step 1: Add the `weapon_ownership` table + seed rows**
+- [x] **Step 1: Add the `weapon_ownership` table + seed rows**
 
 Find (bot.js:269-281):
 
@@ -80,7 +80,7 @@ db.prepare("INSERT OR IGNORE INTO weapon_ownership (weapon_key, seed_username, o
 // --- Animal definitions ---
 ```
 
-- [ ] **Step 2: Add the `WEAPON_DEFS` constant**
+- [x] **Step 2: Add the `WEAPON_DEFS` constant**
 
 Find (bot.js:762-769):
 
@@ -115,7 +115,7 @@ const WEAPON_DEFS = {
 };
 ```
 
-- [ ] **Step 3: Add the three shared weapon helpers**
+- [x] **Step 3: Add the three shared weapon helpers**
 
 Find (bot.js:834-847):
 
@@ -190,7 +190,7 @@ function maybeStealWeapon(targetUserId, attacker) {
 const hideCooldowns = new Map();
 ```
 
-- [ ] **Step 4: Lazily resolve `@Anoki5`/`@InternelFun` to their user id**
+- [x] **Step 4: Lazily resolve `@Anoki5`/`@InternelFun` to their user id**
 
 Find (bot.js:1452-1458):
 
@@ -224,12 +224,12 @@ bot.on('message', async (msg) => {
   rememberMessageAuthor(msg.chat.id, msg.message_id, { userId: msg.from.id, username: virusNick, threadId: msg.message_thread_id });
 ```
 
-- [ ] **Step 5: Verify with a syntax check**
+- [x] **Step 5: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 6: Verify the schema and helper logic in isolation**
+- [x] **Step 6: Verify the schema and helper logic in isolation**
 
 ```bash
 node -e "
@@ -298,7 +298,7 @@ Expected:
 - `owner after troll steal:` `owner_type: 'troll', owner_user_id: null, owner_username: null`
 - `missed roll (0.9 >= 0.05):` `null`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add bot.js
@@ -314,7 +314,7 @@ git commit -m "feat: add real-weapon ownership table + helpers (bat/axe, steal-r
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:74-76` (WEAPON_DEFS, right after the `tgBotDb` try/catch)
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:138-151` (helpers, right after `damageHuman`)
 
-- [ ] **Step 1: Add the `weapon_ownership` table + seed rows to the `tgBotDb` try block**
+- [x] **Step 1: Add the `weapon_ownership` table + seed rows to the `tgBotDb` try block**
 
 Find (bot.js:63-74):
 
@@ -367,7 +367,7 @@ Replace with:
 }
 ```
 
-- [ ] **Step 2: Add the `WEAPON_DEFS` constant right after the `tgBotDb` setup block**
+- [x] **Step 2: Add the `WEAPON_DEFS` constant right after the `tgBotDb` setup block**
 
 Find (bot.js — the lines immediately following the block edited in Step 1):
 
@@ -398,7 +398,7 @@ const WEAPON_DEFS = {
 function markSmelly(userId, durationSeconds, reason) {
 ```
 
-- [ ] **Step 3: Add the three shared weapon helpers right after `damageHuman`**
+- [x] **Step 3: Add the three shared weapon helpers right after `damageHuman`**
 
 Find (bot.js:138-151):
 
@@ -486,12 +486,12 @@ function maybeStealWeapon(targetUserId, attacker) {
 let agent;
 ```
 
-- [ ] **Step 4: Verify with a syntax check**
+- [x] **Step 4: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 5: Verify the mirrored schema + logic in isolation**
+- [x] **Step 5: Verify the mirrored schema + logic in isolation**
 
 ```bash
 node -e "
@@ -551,7 +551,7 @@ Expected:
 - `troll now armed with the bat:` `{ key: 'bat', text: 'битой', multiplier: 1.5 }`
 - `forced troll->human steal (troll currently has no axe):` `null` (target user 555 doesn't own the axe, so there's nothing to steal even though the roll would have succeeded)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add bot.js
@@ -566,7 +566,7 @@ git commit -m "feat: mirror real-weapon ownership table + helpers into troll-bot
 - Modify: `c:\Users\123\Projects\tg-bot\bot.js:946-978` (`/kick`)
 - Modify: `c:\Users\123\Projects\tg-bot\bot.js:848-869` (`/me`)
 
-- [ ] **Step 1: Wire the multiplier, weapon narration, and steal-check into `/kick`**
+- [x] **Step 1: Wire the multiplier, weapon narration, and steal-check into `/kick`**
 
 Find (bot.js:946-978):
 
@@ -648,7 +648,7 @@ Replace with:
       const stolenDef = WEAPON_DEFS[stolenKey];
       await bot.sendMessage(
         msg.chat.id,
-        `${stolenDef.emoji} ${actorLabel} отобрал ${stolenDef.accusative} у ${targetLabel} и теперь бьёт им сам!`,
+        `${stolenDef.emoji} ${actorLabel} отобрал ${stolenDef.accusative} у ${targetLabel} и теперь бьёт ${stolenDef.instrumental} сам!`,
         threadOpts(msg)
       ).catch(() => {});
     }
@@ -656,7 +656,7 @@ Replace with:
 });
 ```
 
-- [ ] **Step 2: Show held weapons on `/me`**
+- [x] **Step 2: Show held weapons on `/me`**
 
 Find (bot.js:848-869):
 
@@ -717,12 +717,12 @@ bot.onText(/\/me\b/, (msg) => {
 });
 ```
 
-- [ ] **Step 3: Verify with a syntax check**
+- [x] **Step 3: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add bot.js
@@ -826,7 +826,7 @@ Replace with:
       const stolenKey = maybeStealWeapon(from.id, { type: 'troll' });
       if (stolenKey) {
         const stolenDef = WEAPON_DEFS[stolenKey];
-        await bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${actorName(from)} и теперь бьёт им сам!`).catch(() => {});
+        await bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${actorName(from)} и теперь бьёт ${stolenDef.instrumental} сам!`).catch(() => {});
       }
     }
   }
@@ -897,7 +897,7 @@ Replace with:
     const stolenKey = maybeStealWeapon(target.userId, { type: 'troll' });
     if (stolenKey) {
       const stolenDef = WEAPON_DEFS[stolenKey];
-      bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${name} и теперь бьёт им сам!`).catch(() => {});
+      bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${name} и теперь бьёт ${stolenDef.instrumental} сам!`).catch(() => {});
     }
   }
 }
@@ -969,7 +969,7 @@ Replace with:
     const stolenKey = maybeStealWeapon(target.userId, { type: 'troll' });
     if (stolenKey) {
       const stolenDef = WEAPON_DEFS[stolenKey];
-      bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${name} и теперь бьёт им сам!`).catch(() => {});
+      bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${name} и теперь бьёт ${stolenDef.instrumental} сам!`).catch(() => {});
     }
   }
 }
@@ -1059,7 +1059,7 @@ Replace with:
       const stolenKey = maybeStealWeapon(target.userId, { type: 'troll' });
       if (stolenKey) {
         const stolenDef = WEAPON_DEFS[stolenKey];
-        await bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${name} и теперь бьёт им сам!`).catch(() => {});
+        await bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${name} и теперь бьёт ${stolenDef.instrumental} сам!`).catch(() => {});
       }
     }
   }
@@ -1221,7 +1221,7 @@ of a random cosmetic word, and on a successful hit the damage number is
 Keep attacking until a roll ≥90 lands (or temporarily lower the crit
 threshold / raise the steal chance in a scratch copy of the file to force
 it, then revert). Expected: on the ~1-in-20 crit that also wins the 5% roll,
-an extra `🏏 ... отобрал биту у ... и теперь бьёт им сам!` message appears,
+an extra `🏏 ... отобрал биту у ... и теперь бьёт битой сам!` message appears,
 and a follow-up `/me` from the new holder shows `🏏 Ты держишь бита: урон
 ×1.5`. The old holder's `/me` no longer shows it.
 
