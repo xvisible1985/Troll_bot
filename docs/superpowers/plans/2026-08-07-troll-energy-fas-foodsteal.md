@@ -24,7 +24,7 @@
 - Modify: `c:\Users\123\Projects\troll-bot\admin-lib.js:26` (settings mirror)
 - Modify: `c:\Users\123\Projects\troll-bot\public\app.js:84` and `:137` (label/range mirrors)
 
-- [ ] **Step 1: Add the three new `troll_state` columns**
+- [x] **Step 1: Add the three new `troll_state` columns**
 
 Find (bot.js:382-388):
 
@@ -61,7 +61,7 @@ for (const [column, def] of [['energy', 'INTEGER NOT NULL DEFAULT 20'], ['max_en
 }
 ```
 
-- [ ] **Step 2: Add the `energy_regen_minutes` setting**
+- [x] **Step 2: Add the `energy_regen_minutes` setting**
 
 `fas_attack_interval_minutes` (the last key before the closing brace) stays
 put for now — Task 3 removes it once nothing references it anymore, so the
@@ -91,7 +91,7 @@ Replace with:
 };
 ```
 
-- [ ] **Step 3: Add the `spendTrollEnergy` helper**
+- [x] **Step 3: Add the `spendTrollEnergy` helper**
 
 Find (bot.js:1365-1367):
 
@@ -120,7 +120,7 @@ function spendTrollEnergy() {
 }
 ```
 
-- [ ] **Step 4: Add the regen tick right after the hourly health tick**
+- [x] **Step 4: Add the regen tick right after the hourly health tick**
 
 Find (bot.js:2816-2827):
 
@@ -164,7 +164,7 @@ Replace with:
   }
 ```
 
-- [ ] **Step 5: Mirror the new setting in `admin-lib.js`**
+- [x] **Step 5: Mirror the new setting in `admin-lib.js`**
 
 `fas_attack_interval_minutes` stays in this list for now too — Task 3 removes
 it there once the code stops reading it.
@@ -183,7 +183,7 @@ Replace with:
 ];
 ```
 
-- [ ] **Step 6: Mirror the label and range in `public/app.js`**
+- [x] **Step 6: Mirror the label and range in `public/app.js`**
 
 Find (public/app.js:83-84):
 
@@ -219,12 +219,12 @@ Replace with:
 };
 ```
 
-- [ ] **Step 7: Verify with a syntax check**
+- [x] **Step 7: Verify with a syntax check**
 
 Run: `node --check bot.js && node --check admin-lib.js && node --check public/app.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 8: Verify the regen math in isolation**
+- [x] **Step 8: Verify the regen math in isolation**
 
 ```bash
 node -e "
@@ -246,7 +246,7 @@ console.log('after regen tick:', db.prepare('SELECT energy FROM troll_state WHER
 ```
 Expected: `spend from 5: 4`, `spend from 0: null`, `after regen tick: { energy: 1 }`.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add bot.js admin-lib.js public/app.js
@@ -260,7 +260,7 @@ git commit -m "feat: add shared troll energy resource (max 20, +1/20min)"
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:1822-1839`
 
-- [ ] **Step 1: Add the energy line to both the photo caption and the text fallback**
+- [x] **Step 1: Add the energy line to both the photo caption and the text fallback**
 
 Find (bot.js:1822-1839):
 
@@ -319,12 +319,12 @@ Replace with:
 });
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
@@ -341,7 +341,7 @@ git commit -m "feat: show troll energy on the /troll status card"
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2555-2578` (`triggerFasAttack`)
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2914-2923` (backgroundTick gate)
 
-- [ ] **Step 1: Drop `BACKGROUND_TICK_MS` from 5 minutes to 1 minute**
+- [x] **Step 1: Drop `BACKGROUND_TICK_MS` from 5 minutes to 1 minute**
 
 A 1-minute Fas cadence is physically impossible while the outer tick itself
 only runs every 5 minutes. Every other autonomous timer in this file already
@@ -365,7 +365,7 @@ Replace with:
 const BACKGROUND_TICK_MS = 60 * 1000;
 ```
 
-- [ ] **Step 2: Update the order-confirmation message**
+- [x] **Step 2: Update the order-confirmation message**
 
 Find (bot.js:2353):
 
@@ -379,7 +379,7 @@ Replace with:
   bot.sendMessage(msg.chat.id, `🐕 ${actorName(msg.from)} скомандовал троллю "Фас!" на ${targetName} — 30 минут не будет покоя, тролль будет бить раз в минуту, пока не кончится энергия!`).catch(() => {});
 ```
 
-- [ ] **Step 3: Spend energy per swing in `triggerFasAttack`**
+- [x] **Step 3: Spend energy per swing in `triggerFasAttack`**
 
 Find (bot.js:2555-2562):
 
@@ -411,7 +411,7 @@ function triggerFasAttack(chatId, state, now) {
   logAction(target.userId, target.username || target.firstName, 'fas_attack');
 ```
 
-- [ ] **Step 4: Fix the backgroundTick gate to a fixed 60-second cadence**
+- [x] **Step 4: Fix the backgroundTick gate to a fixed 60-second cadence**
 
 Find (bot.js:2914-2923):
 
@@ -443,7 +443,7 @@ Replace with:
     }
 ```
 
-- [ ] **Step 5: Remove the now-unused `fas_attack_interval_minutes` setting**
+- [x] **Step 5: Remove the now-unused `fas_attack_interval_minutes` setting**
 
 Nothing reads this setting anymore after Step 4 — remove it from all three
 registries.
@@ -518,19 +518,19 @@ Replace with:
 };
 ```
 
-- [ ] **Step 6: Verify with a syntax check**
+- [x] **Step 6: Verify with a syntax check**
 
 Run: `node --check bot.js && node --check admin-lib.js && node --check public/app.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 7: Confirm no leftover references to the removed setting**
+- [x] **Step 7: Confirm no leftover references to the removed setting**
 
 ```bash
 grep -n "fas_attack_interval_minutes" bot.js admin-lib.js public/app.js
 ```
 Expected: no output.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add bot.js admin-lib.js public/app.js
@@ -544,7 +544,7 @@ git commit -m "fix: Тролль Фас now lands a real attack every minute, ga
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2501-2504`
 
-- [ ] **Step 1: Spend energy before swinging**
+- [x] **Step 1: Spend energy before swinging**
 
 Find (bot.js:2501-2504):
 
@@ -567,12 +567,12 @@ function triggerDrunkAttack(chatId, now) {
   if (spendTrollEnergy() === null) return;
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
@@ -594,7 +594,7 @@ git commit -m "feat: drunk club attack also spends shared troll energy"
 - Modify: `c:\Users\123\Projects\troll-bot\admin-lib.js:13` (setting rename)
 - Modify: `c:\Users\123\Projects\troll-bot\public\app.js:50` and `:103` (label/range rename)
 
-- [ ] **Step 1: Remove the two dead phrase categories from the first-run seed**
+- [x] **Step 1: Remove the two dead phrase categories from the first-run seed**
 
 Find (bot.js:719-733):
 
@@ -628,7 +628,7 @@ Replace with:
   self_eat: [
 ```
 
-- [ ] **Step 2: Add the new food-steal phrase pool next to `LUST_ACTION_PHRASES`**
+- [x] **Step 2: Add the new food-steal phrase pool next to `LUST_ACTION_PHRASES`**
 
 Find (bot.js:1197-1211):
 
@@ -680,7 +680,7 @@ const FOOD_STEAL_ACTION_PHRASES = [
 ];
 ```
 
-- [ ] **Step 3: Register the new category with `seedPhrasesIfMissing`**
+- [x] **Step 3: Register the new category with `seedPhrasesIfMissing`**
 
 Find (bot.js:1263):
 
@@ -695,7 +695,7 @@ seedPhrasesIfMissing('lust_action', LUST_ACTION_PHRASES);
 seedPhrasesIfMissing('food_steal_action', FOOD_STEAL_ACTION_PHRASES);
 ```
 
-- [ ] **Step 4: Add a stats-caption line for the new action**
+- [x] **Step 4: Add a stats-caption line for the new action**
 
 Find (bot.js:1782):
 
@@ -710,7 +710,7 @@ Replace with:
     `🥊 Отжал еду силой: ${totalFor('food_steal')}`,
 ```
 
-- [ ] **Step 5: Rename `satiety_suckle_gain` -> `satiety_foodsteal_gain` (bot.js default)**
+- [x] **Step 5: Rename `satiety_suckle_gain` -> `satiety_foodsteal_gain` (bot.js default)**
 
 Find (bot.js:547):
 
@@ -724,7 +724,7 @@ Replace with:
   satiety_foodsteal_gain: '20',
 ```
 
-- [ ] **Step 6: Rename the setting in `admin-lib.js`**
+- [x] **Step 6: Rename the setting in `admin-lib.js`**
 
 Find (admin-lib.js:13):
 
@@ -738,7 +738,7 @@ Replace with:
   'satiety_decay_per_hour', 'satiety_feed_gain', 'satiety_foodsteal_gain', 'hunger_action_interval_minutes',
 ```
 
-- [ ] **Step 7: Rename the label and range in `public/app.js`**
+- [x] **Step 7: Rename the label and range in `public/app.js`**
 
 Find (public/app.js:50):
 
@@ -764,7 +764,7 @@ Replace with:
   satiety_foodsteal_gain: [5, 50, 5],
 ```
 
-- [ ] **Step 8: Replace `triggerHungryGrab` with `triggerFoodSteal`**
+- [x] **Step 8: Replace `triggerHungryGrab` with `triggerFoodSteal`**
 
 Find (bot.js:2641-2669):
 
@@ -853,7 +853,7 @@ async function triggerFoodSteal(chatId, stage) {
 }
 ```
 
-- [ ] **Step 9: Update the backgroundTick call site**
+- [x] **Step 9: Update the backgroundTick call site**
 
 Find (bot.js:2861-2869):
 
@@ -885,19 +885,19 @@ Replace with:
     }
 ```
 
-- [ ] **Step 10: Verify with a syntax check**
+- [x] **Step 10: Verify with a syntax check**
 
 Run: `node --check bot.js && node --check admin-lib.js && node --check public/app.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 11: Confirm no leftover references to the old names**
+- [x] **Step 11: Confirm no leftover references to the old names**
 
 ```bash
 grep -n "triggerHungryGrab\|hunger_grab_action\|hunger_suckle_action\|satiety_suckle_gain" bot.js admin-lib.js public/app.js
 ```
 Expected: no output.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add bot.js admin-lib.js public/app.js
