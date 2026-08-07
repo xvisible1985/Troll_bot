@@ -1845,7 +1845,9 @@ bot.onText(/\/troll\b/, async (msg) => {
       lust: state.char_lust,
       sobriety: state.char_sobriety,
     });
-    const photoOptions = cocoonCaption ? { ...TROLL_ACTION_KEYBOARD, caption: cocoonCaption } : TROLL_ACTION_KEYBOARD;
+    const energyLine = `⚡ Энергия: ${state.energy}/${state.max_energy}`;
+    const caption = cocoonCaption ? `${energyLine}\n\n${cocoonCaption}` : energyLine;
+    const photoOptions = { ...TROLL_ACTION_KEYBOARD, caption };
     await bot.sendPhoto(msg.chat.id, buffer, photoOptions);
   } catch (err) {
     console.error('troll card render failed, falling back to text:', err.message);
@@ -1854,6 +1856,7 @@ bot.onText(/\/troll\b/, async (msg) => {
       `🍖 Сытость: ${state.satiety}/100 (${satietyWord(state.satiety)})`,
       `🍺 Трезвость: ${state.char_sobriety}/100`,
       `💋 Похоть: ${state.char_lust}/100`,
+      `⚡ Энергия: ${state.energy}/${state.max_energy}`,
       `😊 Настроение: ${moodWord(state.mood)}`,
       `🤝 Отношение к тебе: ${attitudeWord(attitude)} (${attitude > 0 ? '+' : ''}${attitude})`,
       `⚖️ Вес: ${state.weight} кг`,
