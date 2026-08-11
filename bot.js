@@ -2604,11 +2604,13 @@ function triggerLustAction(chatId, stage, now) {
 // While drunk (see isDrunk/performDrink), the troll autonomously clubs a
 // random known person every drunk_attack_interval_minutes — same roll/
 // damage/crit-injury rules as Драка's counter-swing (rollTrollTryResult,
-// 1-20 damage, roll>=90 injury), just a fixed "дубинка" instead of a random
-// weapon, and no dodge attempt from the target (they didn't ask for this).
-// Target picked the same weighted-random way as ordinary mischief (mama
-// excluded); stamps last_drunk_attack_at even on a miss so a string of
-// misses doesn't retry every tick.
+// 1-20 damage, roll>=90 injury), and no dodge attempt from the target (they
+// didn't ask for this). Real-weapon rules apply the same way as
+// triggerFasAttack/performFight (see pickWeaponForAttacker): only when the
+// troll is unarmed does it fall back to a fixed "дубинка" flavor word
+// instead of a randomly picked one. Target picked the same weighted-random
+// way as ordinary mischief (mama excluded); stamps last_drunk_attack_at even
+// on a miss so a string of misses doesn't retry every tick.
 function triggerDrunkAttack(chatId, now) {
   if (!tgBotDb) return;
   const targetInfo = pickMischiefTarget();
