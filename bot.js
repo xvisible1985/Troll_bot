@@ -2322,11 +2322,11 @@ async function performDrink(chatId, from) {
   } else if (roll < 95) {
     await bot.sendMessage(chatId, `🍻 ${actorName(from)} перебрал — тролль дал пиздюлей!`).catch(() => {});
     for (let i = 0; i < 3; i++) {
-      const weapon = pick(FIGHT_WEAPONS);
+      const weapon = pickWeaponForAttacker('troll', null, FIGHT_WEAPONS);
       const bodyPart = pick(FIGHT_BODY_PARTS);
       const critRoll = Math.floor(Math.random() * 101);
-      await bot.sendMessage(chatId, `Тролль — ударить ${actorName(from)} ${weapon} ${bodyPart} ✅ удачно: ${critRoll}/100`).catch(() => {});
-      const dmg = Math.floor(Math.random() * 20) + 1;
+      await bot.sendMessage(chatId, `Тролль — ударить ${actorName(from)} ${weapon.text} ${bodyPart} ✅ удачно: ${critRoll}/100`).catch(() => {});
+      const dmg = Math.round((Math.floor(Math.random() * 20) + 1) * weapon.multiplier);
       const before = getUserHealth(from.id);
       const after = damageHuman(from.id, chatId, from.username || from.first_name, dmg);
       await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (${before.health} -> ${after})`).catch(() => {});
@@ -2335,6 +2335,11 @@ async function performDrink(chatId, from) {
         const healHours = applyInjury(from.id, injuryType);
         const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
         await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryName} (на ${healHours} ч).`).catch(() => {});
+        const stolenKey = maybeStealWeapon(from.id, { type: 'troll' });
+        if (stolenKey) {
+          const stolenDef = WEAPON_DEFS[stolenKey];
+          await bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${actorName(from)} и теперь бьёт ${stolenDef.instrumental} сам!`).catch(() => {});
+        }
       }
       if (after === 0) break;
     }
