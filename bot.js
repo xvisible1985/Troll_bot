@@ -1903,6 +1903,11 @@ bot.onText(/\/troll\b/, async (msg) => {
   // constantly) — falls back to the old plain-text card if canvas ever
   // fails to render (e.g. a native-binary hiccup on the server), so /troll
   // never breaks outright.
+  const weaponLines = getWeaponsFor('troll', null).map(row => {
+    const def = WEAPON_DEFS[row.weapon_key];
+    return `${def.emoji} Тролль вооружён: ${def.name} (урон ×${def.multiplier})`;
+  });
+
   try {
     const buffer = await renderTrollCard({
       health: state.health,
@@ -1920,8 +1925,9 @@ bot.onText(/\/troll\b/, async (msg) => {
       sobriety: state.char_sobriety,
     });
     const energyLine = `⚡ Энергия: ${state.energy}/${state.max_energy}`;
-    const caption = cocoonCaption ? `${energyLine}\n\n${cocoonCaption}` : energyLine;
-    const photoOptions = { ...TROLL_ACTION_KEYBOARD, caption };
+    const captionLines = [energyLine, ...weaponLines];
+    if (cocoonCaption) captionLines.push('', cocoonCaption);
+    const photoOptions = { ...TROLL_ACTION_KEYBOARD, caption: captionLines.join('\n') };
     await bot.sendPhoto(msg.chat.id, buffer, photoOptions);
   } catch (err) {
     console.error('troll card render failed, falling back to text:', err.message);
@@ -1931,6 +1937,7 @@ bot.onText(/\/troll\b/, async (msg) => {
       `🍺 Трезвость: ${state.char_sobriety}/100`,
       `💋 Похоть: ${state.char_lust}/100`,
       `⚡ Энергия: ${state.energy}/${state.max_energy}`,
+      ...weaponLines,
       `😊 Настроение: ${moodWord(state.mood)}`,
       `🤝 Отношение к тебе: ${attitudeWord(attitude)} (${attitude > 0 ? '+' : ''}${attitude})`,
       `⚖️ Вес: ${state.weight} кг`,
