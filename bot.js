@@ -2826,6 +2826,10 @@ async function triggerFoodSteal(chatId, stage, now) {
       logged = true;
     }
     if (getUserHealth(target.userId).health === 0) break;
+    // Re-picked fresh each swing, so a steal earlier in this same loop (see
+    // maybeStealWeapon below) can hand the troll a new weapon it wields on
+    // the very next swing — a weapon "changing mid-attack" across the 3
+    // messages is expected, not a bug.
     const weapon = pickWeaponForAttacker('troll', null, FIGHT_WEAPONS);
     const bodyPart = pick(FIGHT_BODY_PARTS);
     const swing = rollTrollTryResult(`ударить ${name} ${weapon.text} ${bodyPart}`);
