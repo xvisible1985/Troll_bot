@@ -202,8 +202,9 @@ function pickWeaponForAttacker(ownerType, ownerUserId, fallbackWeapons) {
 
 // 5% chance to steal the target's currently-held real weapon after a crit
 // lands on them — call this right after every applyInjury(...) against a
-// human (four call sites in this file: performFight's troll counter-swing,
-// triggerFasAttack, triggerDrunkAttack, triggerFoodSteal). attacker is
+// human (five call sites in this file: performFight's troll counter-swing,
+// triggerFasAttack, triggerDrunkAttack, triggerFoodSteal, performDrink's
+// beatdown branch). attacker is
 // {type:'human', userId, username, firstName} or {type:'troll'} — in this
 // file it's always {type:'troll'}, since every crit troll-bot itself
 // throws comes from the troll. Returns the stolen weapon_key, or null if
