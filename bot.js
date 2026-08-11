@@ -2826,13 +2826,13 @@ async function triggerFoodSteal(chatId, stage, now) {
       logged = true;
     }
     if (getUserHealth(target.userId).health === 0) break;
-    const weapon = pick(FIGHT_WEAPONS);
+    const weapon = pickWeaponForAttacker('troll', null, FIGHT_WEAPONS);
     const bodyPart = pick(FIGHT_BODY_PARTS);
-    const swing = rollTrollTryResult(`ударить ${name} ${weapon} ${bodyPart}`);
+    const swing = rollTrollTryResult(`ударить ${name} ${weapon.text} ${bodyPart}`);
     await bot.sendMessage(chatId, swing.text).catch(() => {});
     if (!swing.success) continue;
     anyHit = true;
-    const dmg = Math.floor(Math.random() * 20) + 1;
+    const dmg = Math.round((Math.floor(Math.random() * 20) + 1) * weapon.multiplier);
     const before = getUserHealth(target.userId);
     const after = damageHuman(target.userId, chatId, target.username || target.firstName, dmg);
     await bot.sendMessage(chatId, `💥 Урон ${name}: ${dmg} (${before.health} -> ${after})`).catch(() => {});
@@ -2841,6 +2841,11 @@ async function triggerFoodSteal(chatId, stage, now) {
       const healHours = applyInjury(target.userId, injuryType);
       const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
       await bot.sendMessage(chatId, `🤕 Критический удар! ${name} получить травму: ${injuryName} (на ${healHours} ч).`).catch(() => {});
+      const stolenKey = maybeStealWeapon(target.userId, { type: 'troll' });
+      if (stolenKey) {
+        const stolenDef = WEAPON_DEFS[stolenKey];
+        await bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${name} и теперь бьёт ${stolenDef.instrumental} сам!`).catch(() => {});
+      }
     }
   }
 
