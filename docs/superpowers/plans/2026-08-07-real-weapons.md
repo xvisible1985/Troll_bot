@@ -736,7 +736,7 @@ git commit -m "feat: wire real weapons into /kick (damage, narration, steal), sh
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2021-2058` (`performFight`)
 
-- [ ] **Step 1: Replace the weapon picks, damage math, and add the steal-check**
+- [x] **Step 1: Replace the weapon picks, damage math, and add the steal-check**
 
 Find (bot.js:2021-2058):
 
@@ -833,12 +833,12 @@ Replace with:
 }
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
@@ -852,7 +852,7 @@ git commit -m "feat: wire real weapons into /fight (human swing + troll counter-
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2609-2624` (`triggerFasAttack`)
 
-- [ ] **Step 1: Replace the weapon pick, damage math, and add the steal-check**
+- [x] **Step 1: Replace the weapon pick, damage math, and add the steal-check**
 
 Find (bot.js:2609-2624):
 
@@ -903,12 +903,12 @@ Replace with:
 }
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
@@ -922,7 +922,7 @@ git commit -m "feat: wire real weapons into \"Тролль Фас\""
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2545-2559` (`triggerDrunkAttack`)
 
-- [ ] **Step 1: Replace the fixed "дубинкой" pick, damage math, and add the steal-check**
+- [x] **Step 1: Replace the fixed "дубинкой" pick, damage math, and add the steal-check**
 
 Find (bot.js:2545-2559):
 
@@ -975,12 +975,12 @@ Replace with:
 }
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
@@ -994,7 +994,7 @@ git commit -m "feat: wire real weapons into the drunk club attack"
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2720-2746` (the 3-swing loop inside `triggerFoodSteal`)
 
-- [ ] **Step 1: Replace the weapon pick, damage math, and add the steal-check inside the loop**
+- [x] **Step 1: Replace the weapon pick, damage math, and add the steal-check inside the loop**
 
 Find (bot.js:2720-2746):
 
@@ -1065,12 +1065,12 @@ Replace with:
   }
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
@@ -1084,7 +1084,7 @@ git commit -m "feat: wire real weapons into food-steal"
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:1832-1869` (`/troll` handler)
 
-- [ ] **Step 1: Build a weapon-lines list and splice it into both the photo caption and the text fallback**
+- [x] **Step 1: Build a weapon-lines list and splice it into both the photo caption and the text fallback**
 
 Find (bot.js:1832-1869):
 
@@ -1179,12 +1179,12 @@ Replace with:
 });
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
