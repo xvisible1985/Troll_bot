@@ -2626,11 +2626,15 @@ function triggerDrunkAttack(chatId, now) {
   // "already at 0, hit again", so a real swing here would silently re-mute
   // them for another 30 minutes (same guard as triggerFoodSteal).
   if (getUserHealth(target.userId).health === 0) return;
+  // Falls back to the club ('дубинкой') if the troll holds no real weapon —
+  // same pickWeaponForAttacker used everywhere else, just with a
+  // single-item fallback pool instead of FIGHT_WEAPONS.
+  const weapon = pickWeaponForAttacker('troll', null, ['дубинкой']);
   const bodyPart = pick(FIGHT_BODY_PARTS);
-  const swing = rollTrollTryResult(`ударить ${name} дубинкой ${bodyPart}`);
+  const swing = rollTrollTryResult(`ударить ${name} ${weapon.text} ${bodyPart}`);
   bot.sendMessage(chatId, swing.text).catch(() => {});
   if (!swing.success) return;
-  const dmg = Math.floor(Math.random() * 20) + 1;
+  const dmg = Math.round((Math.floor(Math.random() * 20) + 1) * weapon.multiplier);
   const before = getUserHealth(target.userId);
   const after = damageHuman(target.userId, chatId, target.username || target.firstName, dmg);
   bot.sendMessage(chatId, `💥 Урон ${name}: ${dmg} (${before.health} -> ${after})`).catch(() => {});
@@ -2639,6 +2643,11 @@ function triggerDrunkAttack(chatId, now) {
     const healHours = applyInjury(target.userId, injuryType);
     const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
     bot.sendMessage(chatId, `🤕 Критический удар! ${name} получить травму: ${injuryName} (на ${healHours} ч).`).catch(() => {});
+    const stolenKey = maybeStealWeapon(target.userId, { type: 'troll' });
+    if (stolenKey) {
+      const stolenDef = WEAPON_DEFS[stolenKey];
+      bot.sendMessage(chatId, `${stolenDef.emoji} Тролль отобрал ${stolenDef.accusative} у ${name} и теперь бьёт ${stolenDef.instrumental} сам!`).catch(() => {});
+    }
   }
 }
 
