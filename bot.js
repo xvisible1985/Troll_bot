@@ -2166,6 +2166,13 @@ async function performFight(chatId, from) {
     const dmg = Math.round((Math.floor(Math.random() * 20) + 1) * trollWeapon.multiplier);
     const humanHealth = damageHuman(from.id, chatId, from.username || from.first_name, dmg);
     await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (${challengerHealth.health} -> ${humanHealth})`).catch(() => {});
+    if (trollWeapon.key === 'scissors') {
+      applyBleed(from.id, chatId);
+      await bot.sendMessage(chatId, `🩸 ${actorName(from)} начинает истекать кровью от ржавых ножниц!`).catch(() => {});
+      if (Math.random() < 0.05) {
+        await bot.sendMessage(chatId, `✂️ Тролль случайно отчекрыжил ${actorName(from)} палец ржавыми ножницами!`).catch(() => {});
+      }
+    }
     if (trollSwing.roll >= 90) {
       const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
       const healHours = applyInjury(from.id, injuryType);
