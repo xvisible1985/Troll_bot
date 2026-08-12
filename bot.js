@@ -2691,6 +2691,13 @@ function triggerDrunkAttack(chatId, now) {
   const before = getUserHealth(target.userId);
   const after = damageHuman(target.userId, chatId, target.username || target.firstName, dmg);
   bot.sendMessage(chatId, `💥 Урон ${name}: ${dmg} (${before.health} -> ${after})`).catch(() => {});
+  if (weapon.key === 'scissors') {
+    applyBleed(target.userId, chatId);
+    bot.sendMessage(chatId, `🩸 ${name} начинает истекать кровью от ржавых ножниц!`).catch(() => {});
+    if (Math.random() < 0.05) {
+      bot.sendMessage(chatId, `✂️ Тролль случайно отчекрыжил ${name} палец ржавыми ножницами!`).catch(() => {});
+    }
+  }
   if (swing.roll >= 90) {
     const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
     const healHours = applyInjury(target.userId, injuryType);
