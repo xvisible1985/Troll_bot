@@ -678,7 +678,7 @@ Expected: no output, exit code 0.
 node -e "
 const Database = require('better-sqlite3');
 const db = new Database(':memory:');
-db.exec(\`CREATE TABLE user_health (user_id INTEGER PRIMARY KEY, health INTEGER NOT NULL DEFAULT 100, bleed_until INTEGER, bleed_chat_id INTEGER, last_bleed_stop_attempt_at INTEGER)\`);
+db.exec(\`CREATE TABLE user_health (user_id INTEGER PRIMARY KEY, health INTEGER NOT NULL DEFAULT 100, max_health INTEGER NOT NULL DEFAULT 100, bleed_until INTEGER, bleed_chat_id INTEGER, last_bleed_stop_attempt_at INTEGER)\`);
 db.exec(\`CREATE TABLE mutes (user_id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL, username TEXT, muted_by INTEGER, muted_by_name TEXT, expires_at INTEGER, created_at INTEGER DEFAULT (strftime('%s','now')))\`);
 
 function damageHuman(userId, chatId, username, damage) {
