@@ -69,6 +69,17 @@ try {
       tgBotDb.exec(`ALTER TABLE user_health ADD COLUMN ${column} ${def}`);
     } catch {}
   }
+  // Bleed, from the rusty scissors real weapon (see WEAPON_DEFS.scissors
+  // and applyBleed below) — bleed_until is when it naturally ends,
+  // bleed_chat_id is where tg-bot's own dedicated bleedTick announces
+  // ticks/stops for this user (troll-bot never ticks bleed itself, only
+  // starts/refreshes it here), last_bleed_stop_attempt_at gates the
+  // 5-minute 50/50 roll to end it early. Same ALTER idiom as energy above.
+  for (const [column, def] of [['bleed_until', 'INTEGER'], ['bleed_chat_id', 'INTEGER'], ['last_bleed_stop_attempt_at', 'INTEGER']]) {
+    try {
+      tgBotDb.exec(`ALTER TABLE user_health ADD COLUMN ${column} ${def}`);
+    } catch {}
+  }
   // Real, stealable weapons (see WEAPON_DEFS below and, in this same repo,
   // docs/superpowers/specs/2026-08-07-real-weapons-design.md) — same
   // dual-create idiom as user_health/injuries above, tg-bot creates this
@@ -86,17 +97,22 @@ try {
   `);
   tgBotDb.prepare("INSERT OR IGNORE INTO weapon_ownership (weapon_key, seed_username, owner_type, owner_user_id, owner_username) VALUES ('bat', 'ANOKI5', 'human', NULL, NULL)").run();
   tgBotDb.prepare("INSERT OR IGNORE INTO weapon_ownership (weapon_key, seed_username, owner_type, owner_user_id, owner_username) VALUES ('axe', 'InternalFun', 'human', NULL, NULL)").run();
+  tgBotDb.prepare("INSERT OR IGNORE INTO weapon_ownership (weapon_key, seed_username, owner_type, owner_user_id, owner_username) VALUES ('scissors', 'AliyaKuzAli', 'human', NULL, NULL)").run();
 } catch (err) {
   console.error('Could not open tg-bot\'s mutes.db — the "smell" feature is disabled. Set TG_BOT_DB_PATH in .env if the path is wrong:', err.message);
 }
 
-// Static per-weapon flavor/multiplier for the two real, stealable weapons
-// (see weapon_ownership above for who currently holds them). Duplicated
-// identically in tg-bot's bot.js — same idiom as FIGHT_WEAPONS/PVP_WEAPONS
-// already being duplicated per-repo.
+// Static per-weapon flavor/multiplier for the three real, stealable
+// weapons (see weapon_ownership above for who currently holds them).
+// Duplicated identically in tg-bot's bot.js — same idiom as
+// FIGHT_WEAPONS/PVP_WEAPONS already being duplicated per-repo. Scissors
+// alone also cause bleed + a chance of a severed finger — see applyBleed
+// below and every call site's `weapon.key === 'scissors'` check (see
+// docs/superpowers/specs/2026-08-12-scissors-bleed-design.md).
 const WEAPON_DEFS = {
   bat: { name: 'бита', instrumental: 'битой', accusative: 'биту', multiplier: 1.5, emoji: '🏏' },
   axe: { name: 'топор', instrumental: 'топором', accusative: 'топор', multiplier: 2.5, emoji: '🪓' },
+  scissors: { name: 'ножницы', instrumental: 'ножницами', accusative: 'ножницы', multiplier: 1.25, emoji: '✂️' },
 };
 
 function markSmelly(userId, durationSeconds, reason) {
@@ -221,6 +237,21 @@ function maybeStealWeapon(targetUserId, attacker) {
     tgBotDb.prepare("UPDATE weapon_ownership SET owner_type = 'human', owner_user_id = ?, owner_username = ? WHERE weapon_key = ?").run(attacker.userId, attacker.username || attacker.firstName, row.weapon_key);
   }
   return row.weapon_key;
+}
+
+// Starts (or refreshes) a 20-minute bleed on a scissors hit — processed
+// entirely by tg-bot's own dedicated bleedTick (troll-bot never ticks
+// bleed itself, only starts/refreshes it here via tgBotDb, same as every
+// other cross-process write in this file). Always overwrites bleed_until
+// on every call, so a fresh scissors hit while already bleeding just
+// resets the clock rather than stacking. Call this only after
+// damageHuman/getUserHealth has already touched userId this same swing
+// (true at every real call site) — the row is not created here, so
+// calling it before that would silently no-op.
+function applyBleed(userId, chatId) {
+  if (!tgBotDb) return;
+  const until = Math.floor(Date.now() / 1000) + 20 * 60;
+  tgBotDb.prepare('UPDATE user_health SET bleed_until = ?, bleed_chat_id = ? WHERE user_id = ?').run(until, chatId, userId);
 }
 
 let agent;
