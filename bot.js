@@ -2369,6 +2369,13 @@ async function performDrink(chatId, from) {
       const before = getUserHealth(from.id);
       const after = damageHuman(from.id, chatId, from.username || from.first_name, dmg);
       await bot.sendMessage(chatId, `💥 Урон ${actorName(from)}: ${dmg} (${before.health} -> ${after})`).catch(() => {});
+      if (weapon.key === 'scissors') {
+        applyBleed(from.id, chatId);
+        await bot.sendMessage(chatId, `🩸 ${actorName(from)} начинает истекать кровью от ржавых ножниц!`).catch(() => {});
+        if (Math.random() < 0.05) {
+          await bot.sendMessage(chatId, `✂️ Тролль случайно отчекрыжил ${actorName(from)} палец ржавыми ножницами!`).catch(() => {});
+        }
+      }
       if (critRoll >= 90) {
         const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
         const healHours = applyInjury(from.id, injuryType);
