@@ -22,7 +22,7 @@
 - Modify: `c:\Users\123\Projects\tg-bot\bot.js:790-797` (`WEAPON_DEFS.scissors`)
 - Modify: `c:\Users\123\Projects\tg-bot\bot.js:895-911` (`applyBleed` helper, right after `maybeStealWeapon`)
 
-- [ ] **Step 1: Add the three bleed columns to `user_health`**
+- [x] **Step 1: Add the three bleed columns to `user_health`**
 
 Find (bot.js:249-258):
 
@@ -64,7 +64,7 @@ for (const [column, def] of [['bleed_until', 'INTEGER'], ['bleed_chat_id', 'INTE
 // Critical-hit injuries from "Драка" (see troll-bot) — one of 'arm' | 'leg'
 ```
 
-- [ ] **Step 2: Add the scissors seed row**
+- [x] **Step 2: Add the scissors seed row**
 
 Find (bot.js:281-299):
 
@@ -115,7 +115,7 @@ db.prepare("INSERT OR IGNORE INTO weapon_ownership (weapon_key, seed_username, o
 db.prepare("INSERT OR IGNORE INTO weapon_ownership (weapon_key, seed_username, owner_type, owner_user_id, owner_username) VALUES ('scissors', 'AliyaKuzAli', 'human', NULL, NULL)").run();
 ```
 
-- [ ] **Step 3: Add the `WEAPON_DEFS.scissors` entry**
+- [x] **Step 3: Add the `WEAPON_DEFS.scissors` entry**
 
 Find (bot.js:790-797):
 
@@ -147,7 +147,7 @@ const WEAPON_DEFS = {
 };
 ```
 
-- [ ] **Step 4: Add the `applyBleed` helper right after `maybeStealWeapon`**
+- [x] **Step 4: Add the `applyBleed` helper right after `maybeStealWeapon`**
 
 Find (bot.js:900-911):
 
@@ -201,12 +201,12 @@ function applyBleed(userId, chatId) {
 const hideCooldowns = new Map();
 ```
 
-- [ ] **Step 5: Verify with a syntax check**
+- [x] **Step 5: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 6: Verify the schema and `applyBleed` in isolation**
+- [x] **Step 6: Verify the schema and `applyBleed` in isolation**
 
 ```bash
 node -e "
@@ -246,7 +246,7 @@ Expected:
 - `bleed_until is ~20min from now:` a number very close to `1200` (20*60)
 - `after second applyBleed (still ~20min out, not stacked):` also very close to `1200`, not `2400`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add bot.js
@@ -263,7 +263,7 @@ git commit -m "feat: add rusty scissors weapon + bleed data model (AliyaKuzAli)"
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:93-100` (`WEAPON_DEFS.scissors`)
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:213-225` (`applyBleed` helper, right after `maybeStealWeapon`)
 
-- [ ] **Step 1: Add the three bleed columns to `user_health` via `tgBotDb`**
+- [x] **Step 1: Add the three bleed columns to `user_health` via `tgBotDb`**
 
 Find (bot.js:63-72):
 
@@ -306,7 +306,7 @@ Replace with:
   // Real, stealable weapons (see WEAPON_DEFS below and, in this same repo,
 ```
 
-- [ ] **Step 2: Add the scissors seed row**
+- [x] **Step 2: Add the scissors seed row**
 
 Find (bot.js:72-88, note these line numbers now shift by +7 after Step 1 — match by content):
 
@@ -353,7 +353,7 @@ Replace with:
   tgBotDb.prepare("INSERT OR IGNORE INTO weapon_ownership (weapon_key, seed_username, owner_type, owner_user_id, owner_username) VALUES ('scissors', 'AliyaKuzAli', 'human', NULL, NULL)").run();
 ```
 
-- [ ] **Step 3: Add the `WEAPON_DEFS.scissors` entry**
+- [x] **Step 3: Add the `WEAPON_DEFS.scissors` entry**
 
 Find (bot.js:93-100):
 
@@ -385,7 +385,7 @@ const WEAPON_DEFS = {
 };
 ```
 
-- [ ] **Step 4: Add the `applyBleed` helper right after `maybeStealWeapon`**
+- [x] **Step 4: Add the `applyBleed` helper right after `maybeStealWeapon`**
 
 Find (bot.js:213-226):
 
@@ -437,12 +437,12 @@ function applyBleed(userId, chatId) {
 let agent;
 ```
 
-- [ ] **Step 5: Verify with a syntax check**
+- [x] **Step 5: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 6: Verify the mirrored schema + `applyBleed` in isolation**
+- [x] **Step 6: Verify the mirrored schema + `applyBleed` in isolation**
 
 ```bash
 node -e "
@@ -469,7 +469,7 @@ Expected:
 - `seed row:` one row, `scissors`/`AliyaKuzAli`/`human`/`null`/`null`.
 - `after applyBleed via tgBotDb:` `{ bleed_until: <timestamp ~20min out>, bleed_chat_id: 555 }`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add bot.js
@@ -483,7 +483,7 @@ git commit -m "feat: mirror rusty scissors weapon + bleed data model into troll-
 **Files:**
 - Modify: `c:\Users\123\Projects\tg-bot\bot.js:1039-1045` (`/kick`, right after the damage message)
 
-- [ ] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
+- [x] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
 
 Find:
 
@@ -517,12 +517,12 @@ Replace with:
   if (roll >= 90) {
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
@@ -537,7 +537,7 @@ git commit -m "feat: wire rusty scissors bleed/finger-sever into /kick"
 - Modify: `c:\Users\123\Projects\tg-bot\bot.js:2032-2034` (new `bleedTick`, right after `healthRegenTick`'s `setInterval`)
 - Modify: `c:\Users\123\Projects\tg-bot\bot.js:918-944` (`/me`, add bleed status line)
 
-- [ ] **Step 1: Add the `bleedTick` interval**
+- [x] **Step 1: Add the `bleedTick` interval**
 
 Find:
 
@@ -595,7 +595,7 @@ setInterval(bleedTick, BLEED_TICK_MS);
 console.log('Бот запущен...');
 ```
 
-- [ ] **Step 2: Show active bleed on `/me`**
+- [x] **Step 2: Show active bleed on `/me`**
 
 Find (bot.js:918-944):
 
@@ -667,12 +667,12 @@ bot.onText(/\/me\b/, (msg) => {
 });
 ```
 
-- [ ] **Step 3: Verify with a syntax check**
+- [x] **Step 3: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 4: Verify `bleedTick`'s logic in isolation**
+- [x] **Step 4: Verify `bleedTick`'s logic in isolation**
 
 ```bash
 node -e "
@@ -740,7 +740,7 @@ Expected:
 
 (NOTE for the implementer: the controller already hand-ran this exact script — plus a second one forcing `Math.random` low to confirm the stop-roll-success branch clears `bleed_until`/`bleed_chat_id` and sets `last_bleed_stop_attempt_at` — against a real repo, and both matched expected output exactly. If your run doesn't match, the bug is almost certainly in how `bleedTick` itself was written in Step 1, not in this script.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot.js
@@ -754,7 +754,7 @@ git commit -m "feat: add bleedTick + show active bleed on /me"
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2136-2138` (troll's counter-swing branch only)
 
-- [ ] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
+- [x] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
 
 Find:
 
@@ -779,12 +779,12 @@ Replace with:
     if (trollSwing.roll >= 90) {
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
@@ -798,7 +798,7 @@ git commit -m "feat: wire rusty scissors bleed/finger-sever into /fight"
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2717-2726`
 
-- [ ] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
+- [x] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
 
 Find (note this exact text, up to and including the `pickWeaponForAttacker` call with `FIGHT_WEAPONS`, is what disambiguates this from the near-identical block in `triggerDrunkAttack` below — match on the full snippet, not just the last 3 lines):
 
@@ -837,12 +837,12 @@ Replace with:
   if (swing.roll >= 90) {
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
@@ -856,7 +856,7 @@ git commit -m "feat: wire rusty scissors bleed/finger-sever into \"Тролль 
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2647-2656`
 
-- [ ] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
+- [x] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
 
 Find (the `pickWeaponForAttacker(..., ['дубинкой'])` fallback — not `FIGHT_WEAPONS` — is what disambiguates this from `triggerFasAttack`'s otherwise-identical block above):
 
@@ -895,12 +895,12 @@ Replace with:
   if (swing.roll >= 90) {
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
@@ -914,7 +914,7 @@ git commit -m "feat: wire rusty scissors bleed/finger-sever into the drunk club 
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2852-2856` (inside the 3-swing loop)
 
-- [ ] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
+- [x] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
 
 Find:
 
@@ -943,12 +943,12 @@ Replace with:
     if (swing.roll >= 90) {
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
@@ -962,7 +962,7 @@ git commit -m "feat: wire rusty scissors bleed/finger-sever into food-steal"
 **Files:**
 - Modify: `c:\Users\123\Projects\troll-bot\bot.js:2330-2334` (inside the beatdown branch's 3-swing loop)
 
-- [ ] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
+- [x] **Step 1: Insert the bleed + finger-sever block between the damage message and the crit check**
 
 Find:
 
@@ -991,12 +991,12 @@ Replace with:
       if (critRoll >= 90) {
 ```
 
-- [ ] **Step 2: Verify with a syntax check**
+- [x] **Step 2: Verify with a syntax check**
 
 Run: `node --check bot.js`
 Expected: no output, exit code 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bot.js
