@@ -2834,6 +2834,9 @@ function triggerFasAttack(chatId, state, now) {
     const healHours = applyInjury(target.userId, injuryType);
     const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
     bot.sendMessage(chatId, `🤕 Критический удар! ${name} получить травму: ${injuryName} (на ${healHours} ч).`).catch(() => {});
+    if (weapon.key === 'horns') {
+      bot.sendMessage(chatId, `🐂 Тролль насадил ${name} на рога!`).catch(() => {});
+    }
     const stolenKey = maybeStealWeapon(target.userId, { type: 'troll' });
     if (stolenKey) {
       const stolenDef = WEAPON_DEFS[stolenKey];
