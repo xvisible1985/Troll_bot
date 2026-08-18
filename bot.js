@@ -2955,6 +2955,10 @@ async function triggerFoodSteal(chatId, stage, now) {
         await bot.sendMessage(chatId, `✂️ Тролль случайно отчекрыжил ${name} палец ржавыми ножницами!`).catch(() => {});
       }
     }
+    if (weapon.key === 'crutch') {
+      applyDimon(target.userId, chatId, target.username || target.firstName);
+      await bot.sendMessage(chatId, `🩼 ${name} огрёб костылём и теперь бормочет как старик Димон (2 ч)!`).catch(() => {});
+    }
     if (swing.roll >= 90) {
       const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
       const healHours = applyInjury(target.userId, injuryType);
