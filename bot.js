@@ -258,6 +258,22 @@ function applyBleed(userId, chatId) {
   tgBotDb.prepare('UPDATE user_health SET bleed_until = ?, bleed_chat_id = ? WHERE user_id = ?').run(until, chatId, userId);
 }
 
+// Cross-process write side of the crutch weapon's timed "old man Dimon"
+// status — tg-bot owns the dimoniacs table and the message hook that
+// reads/expires it; this just writes into it, same relationship this
+// file already has with applyBleed above. Never downgrades an existing
+// PERMANENT status (dimon_until IS NULL, set by admin /dimon in tg-bot).
+function applyDimon(userId, chatId, username) {
+  if (!tgBotDb) return;
+  const existing = tgBotDb.prepare('SELECT dimon_until FROM dimoniacs WHERE user_id = ?').get(userId);
+  if (existing && existing.dimon_until === null) return;
+  const until = Math.floor(Date.now() / 1000) + 2 * 3600;
+  tgBotDb.prepare(
+    'INSERT INTO dimoniacs (user_id, chat_id, username, message_count, dimon_until) VALUES (?, ?, ?, 0, ?) ' +
+    'ON CONFLICT(user_id) DO UPDATE SET dimon_until = excluded.dimon_until, message_count = 0, chat_id = excluded.chat_id, username = excluded.username'
+  ).run(userId, chatId, username, until);
+}
+
 let agent;
 if (proxy) {
   // keepAlive is essential: the low-powered proxy server drops ~half of fresh
