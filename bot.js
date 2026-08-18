@@ -2203,6 +2203,9 @@ async function performFight(chatId, from) {
       const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
       const healHours = applyInjury(from.id, injuryType);
       await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова'} (на ${healHours} ч).`).catch(() => {});
+      if (trollWeapon.key === 'horns') {
+        await bot.sendMessage(chatId, `🐂 Тролль насадил ${actorName(from)} на рога!`).catch(() => {});
+      }
       const stolenKey = maybeStealWeapon(from.id, { type: 'troll' });
       if (stolenKey) {
         const stolenDef = WEAPON_DEFS[stolenKey];
