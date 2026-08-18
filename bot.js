@@ -182,11 +182,18 @@ function consumeEnergy(userId) {
 // the human for 30 minutes via tg-bot's own mutes table. troll-bot can't
 // call tg-bot's muteUser() across processes, so this duplicates its exact
 // INSERT shape (same precedent as markSmelly writing troll_smell directly).
-// Returns the human's health after damage, or null if tgBotDb is down.
+// Also stamps last_regen_at = now, mirroring tg-bot's own damageHuman —
+// tg-bot's healthRegenTick only refreshes that column while health is
+// below max, so a player sitting at full health for a long stretch has a
+// frozen, increasingly stale last_regen_at; without this stamp, the next
+// hit (from either bot) would make the following regen tick see a huge
+// elapsed time and instantly refill them via its MIN(max_health, ...)
+// clamp. Returns the human's health after damage, or null if tgBotDb is down.
 function damageHuman(userId, chatId, username, damage) {
   if (!tgBotDb) return null;
   getUserHealth(userId);
-  const row = tgBotDb.prepare('UPDATE user_health SET health = MAX(0, health - ?) WHERE user_id = ? RETURNING health').get(damage, userId);
+  const now = Math.floor(Date.now() / 1000);
+  const row = tgBotDb.prepare('UPDATE user_health SET health = MAX(0, health - ?), last_regen_at = ? WHERE user_id = ? RETURNING health').get(damage, now, userId);
   if (row.health === 0) {
     const expiresAt = Math.floor(Date.now() / 1000) + 30 * 60;
     tgBotDb.prepare(
