@@ -2400,6 +2400,10 @@ async function performDrink(chatId, from) {
           await bot.sendMessage(chatId, `✂️ Тролль случайно отчекрыжил ${actorName(from)} палец ржавыми ножницами!`).catch(() => {});
         }
       }
+      if (weapon.key === 'crutch') {
+        applyDimon(from.id, chatId, from.username || from.first_name);
+        await bot.sendMessage(chatId, `🩼 ${actorName(from)} огрёб костылём и теперь бормочет как старик Димон (2 ч)!`).catch(() => {});
+      }
       if (critRoll >= 90) {
         const injuryType = INJURY_TYPES[Math.floor(Math.random() * INJURY_TYPES.length)];
         const healHours = applyInjury(from.id, injuryType);
