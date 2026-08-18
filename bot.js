@@ -2978,6 +2978,9 @@ async function triggerFoodSteal(chatId, stage, now) {
       const healHours = applyInjury(target.userId, injuryType);
       const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
       await bot.sendMessage(chatId, `🤕 Критический удар! ${name} получить травму: ${injuryName} (на ${healHours} ч).`).catch(() => {});
+      if (weapon.key === 'horns') {
+        await bot.sendMessage(chatId, `🐂 Тролль насадил ${name} на рога!`).catch(() => {});
+      }
       const stolenKey = maybeStealWeapon(target.userId, { type: 'troll' });
       if (stolenKey) {
         const stolenDef = WEAPON_DEFS[stolenKey];
