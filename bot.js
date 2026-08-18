@@ -2414,6 +2414,9 @@ async function performDrink(chatId, from) {
         const healHours = applyInjury(from.id, injuryType);
         const injuryName = injuryType === 'arm' ? 'рука' : injuryType === 'leg' ? 'нога' : 'голова';
         await bot.sendMessage(chatId, `🤕 Критический удар! ${actorName(from)} получить травму: ${injuryName} (на ${healHours} ч).`).catch(() => {});
+        if (weapon.key === 'horns') {
+          await bot.sendMessage(chatId, `🐂 Тролль насадил ${actorName(from)} на рога!`).catch(() => {});
+        }
         const stolenKey = maybeStealWeapon(from.id, { type: 'troll' });
         if (stolenKey) {
           const stolenDef = WEAPON_DEFS[stolenKey];
