@@ -119,6 +119,13 @@ const WEAPON_DEFS = {
   scissors: { name: 'ножницы', instrumental: 'ножницами', accusative: 'ножницы', multiplier: 1.25, emoji: '✂️' },
   crutch: { name: 'костыль', instrumental: 'костылём', accusative: 'костыль', multiplier: 1.25, emoji: '🩼' },
   horns: { name: 'рога', instrumental: 'рогами', accusative: 'рога', multiplier: 2, emoji: '🐂' },
+  // tg-bot's carrot has no fixed multiplier (its /kick damage is resolved
+  // per-hit across 5 random outcomes) — troll-bot has no equivalent hole
+  // mechanic, so this flat multiplier is only a fallback for when
+  // troll-bot itself ends up holding/wielding the carrot (e.g. via its
+  // own crit-steal against the human owner) and needs SOME multiplier
+  // for its existing weapon.multiplier-based damage math.
+  carrot: { name: 'морковка', instrumental: 'морковкой', accusative: 'морковку', multiplier: 1, emoji: '🥕' },
 };
 
 function markSmelly(userId, durationSeconds, reason) {
