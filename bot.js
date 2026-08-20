@@ -102,6 +102,23 @@ try {
   // lazy resolution can't apply — his numeric id is already known.
   tgBotDb.prepare("INSERT OR IGNORE INTO weapon_ownership (weapon_key, seed_username, owner_type, owner_user_id, owner_username) VALUES ('crutch', NULL, 'human', 736180284, NULL)").run();
   tgBotDb.prepare("INSERT OR IGNORE INTO weapon_ownership (weapon_key, seed_username, owner_type, owner_user_id, owner_username) VALUES ('horns', 'Tamasvi_Vamp', 'human', NULL, NULL)").run();
+  // Lightweight username/first-name cache for tg-bot's /find — same
+  // dual-create idiom as the tables above, tg-bot creates this table too.
+  // noticeUser (see the "--- Relationships ---" section below, defined
+  // after troll_relationships exists) keeps it current going forward for
+  // anyone the troll notices, which is often broader than tg-bot's own
+  // known_users (someone who only ever played with the troll, never used
+  // a tg-bot command). The one-time backfill from troll_relationships
+  // itself runs further down, right after that table is created — it
+  // doesn't exist yet at this point in the file.
+  tgBotDb.exec(`
+    CREATE TABLE IF NOT EXISTS known_users (
+      user_id INTEGER PRIMARY KEY,
+      username TEXT,
+      first_name TEXT,
+      last_seen_at INTEGER
+    )
+  `);
 } catch (err) {
   console.error('Could not open tg-bot\'s mutes.db — the "smell" feature is disabled. Set TG_BOT_DB_PATH in .env if the path is wrong:', err.message);
 }
@@ -659,6 +676,25 @@ try {
   db.exec('ALTER TABLE troll_relationships ADD COLUMN is_enemy INTEGER NOT NULL DEFAULT 0');
   db.exec('UPDATE troll_relationships SET is_enemy = 1 WHERE attitude <= -100');
 } catch {}
+// One-time backfill into tg-bot's shared known_users (see the earlier
+// tgBotDb setup block, where that table gets created) — INSERT OR
+// IGNORE, so it never overwrites a row already populated live from
+// either bot. troll_relationships tracks everyone the troll has ever
+// seen message in its home chat, predating known_users entirely, so
+// without this, tg-bot's /find would only pick these people up the next
+// time they happen to message again after this deploy.
+if (tgBotDb) {
+  try {
+    const relRows = db.prepare('SELECT user_id, username, first_name FROM troll_relationships').all();
+    const insertKnown = tgBotDb.prepare('INSERT OR IGNORE INTO known_users (user_id, username, first_name, last_seen_at) VALUES (?, ?, ?, 0)');
+    const backfillKnown = tgBotDb.transaction((rows) => {
+      for (const row of rows) insertKnown.run(row.user_id, row.username, row.first_name);
+    });
+    backfillKnown(relRows);
+  } catch (err) {
+    console.error('known_users backfill from troll_relationships failed:', err.message);
+  }
+}
 db.exec(`
   CREATE TABLE IF NOT EXISTS troll_stickers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1564,6 +1600,15 @@ function noticeUser(userId, username, firstName) {
     db.prepare('UPDATE troll_relationships SET username = ?, first_name = ?, last_seen_at = ? WHERE user_id = ?').run(username, firstName, now, userId);
   } else {
     db.prepare('INSERT INTO troll_relationships (user_id, username, first_name, attitude, last_seen_at) VALUES (?, ?, ?, 0, ?)').run(userId, username, firstName, now);
+  }
+  // Keep tg-bot's shared known_users cache current too (see /find) —
+  // same upsert shape as tg-bot's own copy of this logic in its main
+  // message handler.
+  if (tgBotDb) {
+    tgBotDb.prepare(
+      'INSERT INTO known_users (user_id, username, first_name, last_seen_at) VALUES (?, ?, ?, ?) ' +
+      'ON CONFLICT(user_id) DO UPDATE SET username = excluded.username, first_name = excluded.first_name, last_seen_at = excluded.last_seen_at'
+    ).run(userId, username || null, firstName || null, now);
   }
 }
 
