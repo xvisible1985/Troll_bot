@@ -174,6 +174,24 @@ function getUserHealth(userId) {
   return tgBotDb.prepare('SELECT health, max_health, energy, max_energy FROM user_health WHERE user_id = ?').get(userId);
 }
 
+// Whether a human is still within their post-knockout mute (see
+// damageHuman's 'драка' INSERT below) — checked by mute reason via the
+// shared mutes table, not by health === 0 directly. tg-bot's
+// healthRegenTick trickles health back up for anyone below max
+// (including someone who just hit 0) on a 10-minute cadence, so raw
+// health can read nonzero again well before the intended 30-minute
+// knockout window actually ends. Same fix as tg-bot's own isKnockedOut.
+function isKnockedOut(userId) {
+  if (!tgBotDb) return false;
+  const row = tgBotDb.prepare('SELECT muted_by_name, expires_at FROM mutes WHERE user_id = ?').get(userId);
+  if (!row || row.muted_by_name !== 'драка') return false;
+  if (row.expires_at && row.expires_at * 1000 < Date.now()) {
+    tgBotDb.prepare('DELETE FROM mutes WHERE user_id = ?').run(userId);
+    return false;
+  }
+  return true;
+}
+
 // Spends 1 energy for a /fight attempt — same resource tg-bot's /kick draws
 // from (see tg-bot's own consumeEnergy). Returns remaining energy, or null
 // if there wasn't any left (the row is guaranteed to exist by the
@@ -2142,7 +2160,7 @@ async function performFight(chatId, from) {
     return;
   }
   const challengerHealth = getUserHealth(from.id);
-  if (challengerHealth.health === 0) {
+  if (isKnockedOut(from.id)) {
     await bot.sendMessage(chatId, `${actorName(from)}, твоя в отключке, какая драка!`).catch(() => {});
     return;
   }
@@ -2376,7 +2394,7 @@ async function performDrink(chatId, from) {
     return;
   }
   const challengerHealth = getUserHealth(from.id);
-  if (challengerHealth.health === 0) {
+  if (isKnockedOut(from.id)) {
     await bot.sendMessage(chatId, `${actorName(from)}, твоя в отключке, какая выпивка!`).catch(() => {});
     return;
   }
