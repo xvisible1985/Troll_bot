@@ -267,14 +267,15 @@ function pickWeaponForAttacker(ownerType, ownerUserId, fallbackWeapons) {
 function maybeStealWeapon(targetUserId, attacker) {
   if (!tgBotDb) return null;
   if (Math.random() >= 0.05) return null;
-  const row = tgBotDb.prepare("SELECT weapon_key FROM weapon_ownership WHERE owner_type = 'human' AND owner_user_id = ?").get(targetUserId);
-  if (!row) return null;
+  const rows = tgBotDb.prepare("SELECT weapon_key FROM weapon_ownership WHERE owner_type = 'human' AND owner_user_id = ?").all(targetUserId);
+  if (!rows.length) return null;
+  const weaponKey = pick(rows.map(row => row.weapon_key));
   if (attacker.type === 'troll') {
-    tgBotDb.prepare("UPDATE weapon_ownership SET owner_type = 'troll', owner_user_id = NULL, owner_username = NULL WHERE weapon_key = ?").run(row.weapon_key);
+    tgBotDb.prepare("UPDATE weapon_ownership SET owner_type = 'troll', owner_user_id = NULL, owner_username = NULL WHERE weapon_key = ?").run(weaponKey);
   } else {
-    tgBotDb.prepare("UPDATE weapon_ownership SET owner_type = 'human', owner_user_id = ?, owner_username = ? WHERE weapon_key = ?").run(attacker.userId, attacker.username || attacker.firstName, row.weapon_key);
+    tgBotDb.prepare("UPDATE weapon_ownership SET owner_type = 'human', owner_user_id = ?, owner_username = ? WHERE weapon_key = ?").run(attacker.userId, attacker.username || attacker.firstName, weaponKey);
   }
-  return row.weapon_key;
+  return weaponKey;
 }
 
 // Starts (or refreshes) a 20-minute bleed on a scissors hit — processed
